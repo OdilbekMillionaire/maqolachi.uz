@@ -17,17 +17,90 @@ import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 
-const getStatusBadge = (status: SectionStatus) => {
-  switch (status) {
-    case "GENERATED":
-      return { label: "Generatsiya qilindi", class: "status-generated" };
-    case "EDITED":
-      return { label: "Tahrirlandi", class: "status-edited" };
-    case "DRAFT":
-      return { label: "Qoralama", class: "status-draft" };
-    default:
-      return { label: "Bo'sh", class: "status-empty" };
+const translations = {
+  uz: {
+    status: { GENERATED: "Generatsiya qilindi", EDITED: "Tahrirlandi", DRAFT: "Qoralama", EMPTY: "Bo'sh" },
+    title: "Maqola yozish",
+    subtitle: "Har bir bo'limni AI yordamida generatsiya qiling yoki qo'lda yozing",
+    titleLabel: "Sarlavha",
+    preview: "Oldindan ko'rish",
+    progress: "Jarayon",
+    sections: "bo'lim",
+    content: "Kontent",
+    notes: "Eslatmalar (ixtiyoriy)",
+    notesPlaceholder: "Bu bo'lim uchun eslatmalar...",
+    contentPlaceholder: "Bo'lim kontentini yozing yoki AI yordamida generatsiya qiling...",
+    generating: "Generatsiya...",
+    regenerate: "Qayta generatsiya",
+    generate: "Generatsiya qilish",
+    variants: "Boshqa variantlar",
+    backToStructure: "Strukturaga qaytish",
+    export: "Eksport qilish",
+    progressSteps: ["Kontekst o'rganilmoqda...", "Kontent generatsiya qilinmoqda...", "Sayqallanmoqda..."],
+    mockContent: (sectionName: string) => `Bu ${sectionName} bo'limi uchun generatsiya qilingan kontent namunasi.
+
+Ushbu bo'limda tadqiqot mavzusining asosiy jihatlari tahlil qilinadi. Mavzuning dolzarbligi va ilmiy ahamiyati ko'rsatib o'tiladi.
+
+Tadqiqot metodologiyasi va yondashuvlari batafsil yoritilgan. Olingan natijalar va xulosalar ilmiy jihatdan asoslantirilgan.`,
+    summary: "Bo'lim generatsiya qilindi va asosiy fikrlar yoritildi."
+  },
+  ru: {
+    status: { GENERATED: "Сгенерировано", EDITED: "Отредактировано", DRAFT: "Черновик", EMPTY: "Пусто" },
+    title: "Написание статьи",
+    subtitle: "Генерируйте каждый раздел с помощью ИИ или пишите вручную",
+    titleLabel: "Заголовок",
+    preview: "Предпросмотр",
+    progress: "Прогресс",
+    sections: "разделов",
+    content: "Контент",
+    notes: "Заметки (необязательно)",
+    notesPlaceholder: "Заметки для этого раздела...",
+    contentPlaceholder: "Напишите контент раздела или сгенерируйте с помощью ИИ...",
+    generating: "Генерация...",
+    regenerate: "Перегенерировать",
+    generate: "Сгенерировать",
+    variants: "Другие варианты",
+    backToStructure: "Вернуться к структуре",
+    export: "Экспортировать",
+    progressSteps: ["Изучение контекста...", "Генерация контента...", "Полировка..."],
+    mockContent: (sectionName: string) => `Это пример сгенерированного контента для раздела ${sectionName}.
+
+В данном разделе анализируются основные аспекты темы исследования. Показана актуальность и научная значимость темы.
+
+Подробно описаны методология и подходы исследования. Полученные результаты и выводы научно обоснованы.`,
+    summary: "Раздел сгенерирован, основные идеи изложены."
+  },
+  en: {
+    status: { GENERATED: "Generated", EDITED: "Edited", DRAFT: "Draft", EMPTY: "Empty" },
+    title: "Write Article",
+    subtitle: "Generate each section with AI or write manually",
+    titleLabel: "Title",
+    preview: "Preview",
+    progress: "Progress",
+    sections: "sections",
+    content: "Content",
+    notes: "Notes (optional)",
+    notesPlaceholder: "Notes for this section...",
+    contentPlaceholder: "Write section content or generate with AI...",
+    generating: "Generating...",
+    regenerate: "Regenerate",
+    generate: "Generate",
+    variants: "Other variants",
+    backToStructure: "Back to structure",
+    export: "Export",
+    progressSteps: ["Analyzing context...", "Generating content...", "Polishing..."],
+    mockContent: (sectionName: string) => `This is sample generated content for the ${sectionName} section.
+
+This section analyzes the main aspects of the research topic. The relevance and scientific significance of the topic are demonstrated.
+
+The research methodology and approaches are described in detail. The obtained results and conclusions are scientifically substantiated.`,
+    summary: "Section generated with main ideas covered."
   }
+};
+
+const getStatusBadge = (status: SectionStatus, lang: 'uz' | 'ru' | 'en') => {
+  const t = translations[lang];
+  return { label: t.status[status], class: `status-${status.toLowerCase()}` };
 };
 
 export const WritePhase = () => {
@@ -37,35 +110,28 @@ export const WritePhase = () => {
   
   const sections = currentProject?.sections || [];
   const title = currentProject?.title || "";
+  const lang = (currentProject?.config?.language || 'uz') as 'uz' | 'ru' | 'en';
+  const t = translations[lang];
   
   const handleGenerate = async (sectionId: string) => {
     setGeneratingSectionId(sectionId);
     setIsGenerating(true);
-    setGenerationProgress("Tahlil qilinmoqda...");
+    setGenerationProgress(t.progressSteps[0]);
     
     // Simulate generation steps
-    const steps = [
-      "Kontekst o'rganilmoqda...",
-      "Kontent generatsiya qilinmoqda...",
-      "Sayqallanmoqda...",
-    ];
-    
-    for (let i = 0; i < steps.length; i++) {
+    for (let i = 0; i < t.progressSteps.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 1000));
-      setGenerationProgress(steps[i]);
+      setGenerationProgress(t.progressSteps[i]);
     }
     
-    // Mock generated content
-    const mockContent = `Bu ${sections.find(s => s.id === sectionId)?.name} bo'limi uchun generatsiya qilingan kontent namunasi.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-
-Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.`;
+    // Mock generated content in selected language
+    const sectionName = sections.find(s => s.id === sectionId)?.name || '';
+    const mockContent = t.mockContent(sectionName);
     
     updateSection(sectionId, { 
       content: mockContent, 
       status: "GENERATED",
-      summary: "Bo'lim generatsiya qilindi va asosiy fikrlar yoritildi."
+      summary: t.summary
     });
     
     setGeneratingSectionId(null);
@@ -95,32 +161,30 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
       >
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Maqola yozish</h1>
-          <p className="text-muted-foreground">
-            Har bir bo'limni AI yordamida generatsiya qiling yoki qo'lda yozing
-          </p>
+          <h1 className="text-3xl font-bold mb-2">{t.title}</h1>
+          <p className="text-muted-foreground">{t.subtitle}</p>
         </div>
         
         {/* Title and progress */}
         <div className="glass-panel p-6 mb-8">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
-              <p className="text-xs text-muted-foreground mb-2">Sarlavha</p>
+              <p className="text-xs text-muted-foreground mb-2">{t.titleLabel}</p>
               <h2 className="text-xl font-serif text-foreground leading-relaxed">
                 {title}
               </h2>
             </div>
             <Button variant="outline" size="sm" className="gap-2 flex-shrink-0">
               <FileText className="w-4 h-4" />
-              Oldindan ko'rish
+              {t.preview}
             </Button>
           </div>
           
           {/* Progress bar */}
           <div>
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-muted-foreground">Jarayon</span>
-              <span className="text-foreground font-medium">{completedSections}/{sections.length} bo'lim</span>
+              <span className="text-muted-foreground">{t.progress}</span>
+              <span className="text-foreground font-medium">{completedSections}/{sections.length} {t.sections}</span>
             </div>
             <div className="h-2 bg-secondary rounded-full overflow-hidden">
               <motion.div
@@ -138,7 +202,7 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
           {sections.map((section, index) => {
             const isExpanded = expandedSection === section.id;
             const isGeneratingThis = generatingSectionId === section.id;
-            const statusBadge = getStatusBadge(section.status);
+            const statusBadge = getStatusBadge(section.status, lang);
             
             return (
               <motion.div
@@ -198,19 +262,19 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
                             {isGeneratingThis ? (
                               <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                Generatsiya...
+                                {t.generating}
                               </>
                             ) : (
                               <>
                                 <Sparkles className="w-4 h-4" />
-                                {section.content ? "Qayta generatsiya" : "Generatsiya qilish"}
+                                {section.content ? t.regenerate : t.generate}
                               </>
                             )}
                           </Button>
                           {section.content && (
                             <Button variant="outline" className="gap-2">
                               <MoreHorizontal className="w-4 h-4" />
-                              Boshqa variantlar
+                              {t.variants}
                             </Button>
                           )}
                         </div>
@@ -218,12 +282,12 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
                         {/* Content editor */}
                         <div>
                           <label className="text-sm text-muted-foreground mb-2 block">
-                            Kontent
+                            {t.content}
                           </label>
                           <textarea
                             value={section.content}
                             onChange={(e) => handleContentChange(section.id, e.target.value)}
-                            placeholder="Bo'lim kontentini yozing yoki AI yordamida generatsiya qiling..."
+                            placeholder={t.contentPlaceholder}
                             className="w-full min-h-[300px] bg-secondary/30 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-y font-serif leading-relaxed"
                           />
                         </div>
@@ -231,13 +295,13 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
                         {/* Section notes */}
                         <div>
                           <label className="text-sm text-muted-foreground mb-2 block">
-                            Eslatmalar (ixtiyoriy)
+                            {t.notes}
                           </label>
                           <input
                             type="text"
                             value={section.notes}
                             onChange={(e) => updateSection(section.id, { notes: e.target.value })}
-                            placeholder="Bu bo'lim uchun eslatmalar..."
+                            placeholder={t.notesPlaceholder}
                             className="w-full bg-secondary/30 border border-border rounded-xl px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm"
                           />
                         </div>
@@ -259,11 +323,11 @@ Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
             className="gap-2"
           >
             <ArrowLeft className="w-5 h-5" />
-            Strukturaga qaytish
+            {t.backToStructure}
           </Button>
           <Button variant="hero" size="lg" className="gap-2">
             <FileText className="w-5 h-5" />
-            Eksport qilish
+            {t.export}
           </Button>
         </div>
       </motion.div>
