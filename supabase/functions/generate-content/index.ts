@@ -86,66 +86,76 @@ async function callGeminiWithGrounding(prompt: string, systemPrompt: string): Pr
   return content;
 }
 
+// Retry wrapper for GROQ rate limits
+async function callGroqWithRetry(
+  systemPrompt: string, 
+  userPrompt: string, 
+  model: string, 
+  temperature: number, 
+  maxTokens: number,
+  maxRetries: number = 3
+): Promise<string> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(GROQ_BASE_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature,
+          max_tokens: maxTokens,
+        }),
+      });
+
+      if (response.status === 429) {
+        const waitTime = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s
+        console.log(`GROQ rate limited (429), waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('GROQ API error:', response.status, errorText);
+        throw new Error(`GROQ API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content;
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < maxRetries - 1) {
+        const waitTime = Math.pow(2, attempt) * 2000;
+        console.log(`GROQ error, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+  
+  throw lastError || new Error('GROQ API failed after retries');
+}
+
 // Function to call GROQ with search context
 async function callGroqWithContext(systemPrompt: string, userPrompt: string, searchContext: string, model: string, temperature: number, maxTokens: number): Promise<string> {
   const enhancedPrompt = searchContext 
     ? `${userPrompt}\n\n--- REAL SOURCES FROM WEB SEARCH (use these for citations) ---\n${searchContext}`
     : userPrompt;
 
-  const response = await fetch(GROQ_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: enhancedPrompt }
-      ],
-      temperature,
-      max_tokens: maxTokens,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('GROQ API error:', response.status, errorText);
-    throw new Error(`GROQ API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
+  return callGroqWithRetry(systemPrompt, enhancedPrompt, model, temperature, maxTokens);
 }
 
 // Function to call GROQ without search
 async function callGroq(systemPrompt: string, userPrompt: string, model: string, temperature: number, maxTokens: number): Promise<string> {
-  const response = await fetch(GROQ_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature,
-      max_tokens: maxTokens,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('GROQ API error:', response.status, errorText);
-    throw new Error(`GROQ API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
+  return callGroqWithRetry(systemPrompt, userPrompt, model, temperature, maxTokens);
 }
 
 serve(async (req) => {
