@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
+import { getTranslation, Language } from "@/lib/translations";
 
 export const SkeletonPhase = () => {
   const { currentProject, setPhase, addSection, updateSection, removeSection, reorderSections } = useProjectStore();
@@ -20,7 +21,9 @@ export const SkeletonPhase = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   
   const sections = currentProject?.sections || [];
-  const title = currentProject?.title || "Sarlavha tanlanmagan";
+  const lang = (currentProject?.config?.language || 'uz') as Language;
+  const t = getTranslation(lang);
+  const title = currentProject?.title || t.noTitleSelected;
   
   const handleReorder = (newOrder: Section[]) => {
     const reordered = newOrder.map((section, index) => ({
@@ -58,15 +61,13 @@ export const SkeletonPhase = () => {
       >
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Maqola tuzilishi</h1>
-          <p className="text-muted-foreground">
-            Bo'limlarni tartibga keltiring, nomlang va zarur bo'lsa yangilarini qo'shing
-          </p>
+          <h1 className="text-3xl font-bold mb-2">{t.skeletonTitle}</h1>
+          <p className="text-muted-foreground">{t.skeletonSubtitle}</p>
         </div>
         
         {/* Title preview */}
         <div className="glass-panel p-6 mb-8">
-          <p className="text-xs text-muted-foreground mb-2">Tanlangan sarlavha</p>
+          <p className="text-xs text-muted-foreground mb-2">{t.selectedTitleLabel}</p>
           <h2 className="text-xl font-serif text-foreground leading-relaxed">
             {title}
           </h2>
@@ -75,7 +76,7 @@ export const SkeletonPhase = () => {
         {/* Sections list */}
         <div className="glass-panel p-6 mb-8">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="font-semibold">Bo'limlar</h2>
+            <h2 className="font-semibold">{t.sectionsLabel}</h2>
             <Button
               variant="outline"
               size="sm"
@@ -83,7 +84,7 @@ export const SkeletonPhase = () => {
               className="gap-2"
             >
               <Plus className="w-4 h-4" />
-              Bo'lim qo'shish
+              {t.addSection}
             </Button>
           </div>
           
@@ -179,7 +180,7 @@ export const SkeletonPhase = () => {
                 type="text"
                 value={newSectionName}
                 onChange={(e) => setNewSectionName(e.target.value)}
-                placeholder="Yangi bo'lim nomi..."
+                placeholder={t.newSectionPlaceholder}
                 autoFocus
                 className="flex-1 bg-secondary/50 border border-border rounded-xl px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
                 onKeyDown={(e) => {
@@ -191,7 +192,7 @@ export const SkeletonPhase = () => {
                 }}
               />
               <Button onClick={handleAddSection} disabled={!newSectionName.trim()}>
-                Qo'shish
+                {t.add}
               </Button>
               <Button
                 variant="ghost"
@@ -200,7 +201,7 @@ export const SkeletonPhase = () => {
                   setNewSectionName("");
                 }}
               >
-                Bekor
+                {t.cancel}
               </Button>
             </motion.div>
           )}
@@ -215,7 +216,7 @@ export const SkeletonPhase = () => {
             className="gap-2"
           >
             <ArrowLeft className="w-5 h-5" />
-            Orqaga
+            {t.back}
           </Button>
           <Button
             variant="hero"
@@ -223,7 +224,7 @@ export const SkeletonPhase = () => {
             onClick={() => setPhase("write")}
             className="gap-2"
           >
-            Yozishni boshlash
+            {t.startWriting}
             <ArrowRight className="w-5 h-5" />
           </Button>
         </div>

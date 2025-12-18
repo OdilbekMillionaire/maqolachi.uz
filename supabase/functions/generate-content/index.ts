@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { type, config, sectionName, priorSummaries, extraInstructions, regenMode } = await req.json();
+    const { type, config, sectionName, priorSummaries, extraInstructions, regenMode, targetWordCount } = await req.json();
 
     if (!GROQ_API_KEY) {
       throw new Error('GROQ_API_KEY is not configured');
@@ -54,11 +54,11 @@ Requirements:
 Respond with ONLY a JSON array of title strings.`;
     } else if (type === 'section') {
       const sourcesInfo = sources?.length 
-        ? `\n\nUser-provided sources (cite ONLY these if you need citations):\n${sources.map((s: any) => `- ${s.title}: ${s.urlOrDoi}`).join('\n')}`
-        : '\n\nNo specific sources provided. If you mention references, label them as "Suggested references (verify)" without specific URLs or DOIs.';
+        ? `\n\nUser-provided sources (cite these using numbered references [1], [2], etc.):\n${sources.map((s: any, i: number) => `[${i + 1}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
+        : '';
 
       const priorContext = priorSummaries?.length
-        ? `\n\nPrior sections context:\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
+        ? `\n\nPrior sections context (maintain continuity):\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
         : '';
 
       let regenInstructions = '';
@@ -73,25 +73,42 @@ Respond with ONLY a JSON array of title strings.`;
         regenInstructions = `\n\nSpecial instruction: ${regenModes[regenMode] || regenMode}`;
       }
 
+      const wordTarget = targetWordCount || 700;
+
       systemPrompt = `You are an expert academic writer specializing in ${domain} research at the ${academicLevel} level.
 You write in ${langName} language using ${citationStyle} citation style.
 Your writing style is ${styleMode}.
 
 CRITICAL RULES:
 - Write ONLY in ${langName} language
-- Never hallucinate URLs, DOIs, or specific case citations
-- If citing sources, use ONLY the user-provided sources
-- For Law domain: avoid inventing case citations; use doctrinal explanation if uncertain
-- Maintain academic rigor appropriate for ${academicLevel} level`;
+- The section MUST be DIRECTLY RELEVANT to the section name "${sectionName}" and the article title "${title}"
+- Include numbered citations [1], [2], [3] etc. throughout the text when referencing claims or data
+- Generate approximately ${wordTarget} words for this section
+- Never hallucinate specific URLs, DOIs, or case citations
+- If citing sources, use ONLY the user-provided sources with their assigned numbers
+- If no sources provided, use general references like [1], [2] and at the end suggest what types of sources to verify
+- For Law domain: avoid inventing case citations; use doctrinal explanation
+- Maintain academic rigor appropriate for ${academicLevel} level
+- Ensure content is detailed, informative, and academically substantiated`;
 
       userPrompt = `Write the "${sectionName}" section for an academic article.
 
 Article title: ${title || 'Untitled'}
 Domain: ${domain}
 Academic level: ${academicLevel}
-Citation style: ${citationStyle}${sourcesInfo}${priorContext}${regenInstructions}${extraInstructions ? `\n\nAdditional instructions: ${extraInstructions}` : ''}
+Citation style: ${citationStyle}
+Target word count: ${wordTarget} words${sourcesInfo}${priorContext}${regenInstructions}${extraInstructions ? `\n\nAdditional instructions: ${extraInstructions}` : ''}
 
-Write comprehensive, well-structured content for this section (500-800 words). Include proper academic formatting and maintain continuity with prior sections if provided.`;
+IMPORTANT REQUIREMENTS:
+1. The content MUST be specifically about "${sectionName}" - write content that directly addresses what this section name implies
+2. Stay focused on the article's main topic: "${title}"
+3. Include academic citations using numbered format [1], [2], [3] throughout the text
+4. Write comprehensive, detailed, and informative content (approximately ${wordTarget} words)
+5. Maintain continuity with prior sections if provided
+6. Use formal academic language appropriate for ${academicLevel} level
+7. Include relevant theories, concepts, and analysis specific to ${domain}
+
+Write the complete section content now:`;
     } else {
       throw new Error('Invalid generation type');
     }
@@ -111,7 +128,7 @@ Write comprehensive, well-structured content for this section (500-800 words). I
           { role: 'user', content: userPrompt }
         ],
         temperature: type === 'titles' ? 0.9 : 0.7,
-        max_tokens: type === 'titles' ? 1000 : 2000,
+        max_tokens: type === 'titles' ? 1000 : 4000,
       }),
     });
 
