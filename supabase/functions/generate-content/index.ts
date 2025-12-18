@@ -15,7 +15,18 @@ serve(async (req) => {
   }
 
   try {
-    const { type, config, sectionName, priorSummaries, extraInstructions, regenMode, targetWordCount } = await req.json();
+    const { 
+      type, 
+      config, 
+      sectionName, 
+      priorSummaries, 
+      extraInstructions, 
+      regenMode, 
+      targetWordCount,
+      startingCitationNumber,
+      isConclusion,
+      humanize 
+    } = await req.json();
 
     if (!GROQ_API_KEY) {
       throw new Error('GROQ_API_KEY is not configured');
@@ -53,12 +64,14 @@ Requirements:
 
 Respond with ONLY a JSON array of title strings.`;
     } else if (type === 'section') {
+      const startNum = startingCitationNumber || 1;
+      
       const sourcesInfo = sources?.length 
-        ? `\n\nUser-provided sources (cite these using numbered references [1], [2], etc.):\n${sources.map((s: any, i: number) => `[${i + 1}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
+        ? `\n\nUser-provided sources (cite these with sequential numbers starting from [${startNum}]):\n${sources.map((s: any, i: number) => `[${startNum + i}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
         : '';
 
       const priorContext = priorSummaries?.length
-        ? `\n\nPrior sections context (maintain continuity):\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
+        ? `\n\nPrior sections context (maintain continuity, continue citation numbering from [${startNum}]):\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
         : '';
 
       let regenInstructions = '';
@@ -74,46 +87,118 @@ Respond with ONLY a JSON array of title strings.`;
       }
 
       const wordTarget = targetWordCount || 700;
+      
+      // Humanization instructions
+      const humanizeInstructions = humanize ? `
 
-      systemPrompt = `You are an expert academic writer specializing in ${domain} research at the ${academicLevel} level.
+HUMANIZATION INSTRUCTIONS (CRITICAL - make text natural and undetectable by AI detectors):
+- Vary sentence length significantly (mix very short with longer complex sentences)
+- Use occasional contractions, informal transitions, and natural speech patterns
+- Include personal observations, rhetorical questions, and engaging hooks
+- Add slight imperfections like parenthetical asides or mid-sentence clarifications
+- Use diverse vocabulary - avoid repetitive academic phrases
+- Include occasional hedging language ("perhaps", "it seems", "one might argue")
+- Write as a knowledgeable human expert would, not as a machine
+- Vary paragraph lengths and structure unpredictably
+- Use active voice predominantly, with occasional passive for emphasis` : '';
+
+      // Special handling for conclusion - NO citations
+      if (isConclusion) {
+        systemPrompt = `You are an expert academic writer specializing in ${domain} research at the ${academicLevel} level.
+You write in ${langName} language using ${citationStyle} citation style.
+Your writing style is ${styleMode}.
+
+CRITICAL RULES FOR CONCLUSION:
+- Write ONLY in ${langName} language
+- The section MUST be DIRECTLY RELEVANT to the section name "${sectionName}" and the article title "${title}"
+- DO NOT include ANY citations or references [1], [2], etc. in the conclusion - conclusions should synthesize without new citations
+- Generate approximately ${wordTarget} words for this section
+- Summarize key findings and provide final thoughts
+- Maintain academic rigor appropriate for ${academicLevel} level${humanizeInstructions}`;
+
+        userPrompt = `Write the "${sectionName}" (Conclusion) section for an academic article.
+
+Article title: ${title || 'Untitled'}
+Domain: ${domain}
+Academic level: ${academicLevel}
+Target word count: ${wordTarget} words${priorContext}
+
+CRITICAL REQUIREMENTS:
+1. This is the CONCLUSION section - DO NOT include any citations [1], [2], etc.
+2. Summarize the main findings and arguments from previous sections
+3. Provide implications, recommendations, or future research directions
+4. Write comprehensive, detailed content (approximately ${wordTarget} words)
+5. End with a strong closing statement
+
+Write the complete conclusion section now (NO CITATIONS):`;
+      } else {
+        // Regular section with citations
+        systemPrompt = `You are an expert academic writer specializing in ${domain} research at the ${academicLevel} level.
 You write in ${langName} language using ${citationStyle} citation style.
 Your writing style is ${styleMode}.
 
 CRITICAL RULES:
 - Write ONLY in ${langName} language
 - The section MUST be DIRECTLY RELEVANT to the section name "${sectionName}" and the article title "${title}"
-- Include numbered citations [1], [2], [3] etc. throughout the text when referencing claims or data
+- Include numbered citations starting from [${startNum}] sequentially (e.g., [${startNum}], [${startNum + 1}], [${startNum + 2}])
 - Generate approximately ${wordTarget} words for this section
-- Never hallucinate specific URLs, DOIs, or case citations
-- If citing sources, use ONLY the user-provided sources with their assigned numbers
-- If no sources provided, use general references like [1], [2] and at the end suggest what types of sources to verify
-- For Law domain: avoid inventing case citations; use doctrinal explanation
+- For ${domain === 'law' ? 'Law domain: cite actual laws, legal codes, regulations, and legal principles' : 'your domain: cite relevant academic theories, research findings, and authoritative sources'}
+- Citations should reference real types of sources (journals, books, laws, regulations) - include author names/titles when possible
 - Maintain academic rigor appropriate for ${academicLevel} level
-- Ensure content is detailed, informative, and academically substantiated`;
+- Track how many citations you use and report the count at the end${humanizeInstructions}`;
 
-      userPrompt = `Write the "${sectionName}" section for an academic article.
+        userPrompt = `Write the "${sectionName}" section for an academic article.
 
 Article title: ${title || 'Untitled'}
 Domain: ${domain}
 Academic level: ${academicLevel}
 Citation style: ${citationStyle}
-Target word count: ${wordTarget} words${sourcesInfo}${priorContext}${regenInstructions}${extraInstructions ? `\n\nAdditional instructions: ${extraInstructions}` : ''}
+Target word count: ${wordTarget} words
+Starting citation number: [${startNum}]${sourcesInfo}${priorContext}${regenInstructions}${extraInstructions ? `\n\nAdditional instructions: ${extraInstructions}` : ''}
 
 IMPORTANT REQUIREMENTS:
 1. The content MUST be specifically about "${sectionName}" - write content that directly addresses what this section name implies
 2. Stay focused on the article's main topic: "${title}"
-3. Include academic citations using numbered format [1], [2], [3] throughout the text
+3. Include academic citations using sequential numbered format starting from [${startNum}]
 4. Write comprehensive, detailed, and informative content (approximately ${wordTarget} words)
 5. Maintain continuity with prior sections if provided
 6. Use formal academic language appropriate for ${academicLevel} level
 7. Include relevant theories, concepts, and analysis specific to ${domain}
+8. ${domain === 'law' ? 'Cite actual laws, legal regulations, codes, and legal principles - be specific about legal sources' : 'Cite relevant academic sources, theories, and research - mention author names and publication types'}
+9. At the END of your response, add a line: "CITATIONS_USED: X" where X is the count of citations you used
 
 Write the complete section content now:`;
+      }
+    } else if (type === 'references') {
+      // Generate the references section based on citations used
+      const totalCitations = startingCitationNumber || 10;
+      
+      systemPrompt = `You are an expert academic writer creating a references/bibliography section.
+You write in ${langName} language using ${citationStyle} citation style.
+
+Generate a properly formatted references list with ${totalCitations} references that would support an academic article about "${title}" in the ${domain} field.`;
+
+      userPrompt = `Create a References section with ${totalCitations} entries for an academic article.
+
+Article title: ${title || 'Untitled'}
+Domain: ${domain}
+Citation style: ${citationStyle}
+Number of references needed: ${totalCitations}
+
+Requirements:
+1. Format each reference according to ${citationStyle} style
+2. Include a mix of: ${domain === 'law' ? 'legal codes, court cases, legal journals, law textbooks, regulations' : 'journal articles, books, conference papers, authoritative reports'}
+3. Number each reference [1], [2], [3], etc. up to [${totalCitations}]
+4. Make references realistic and relevant to the topic
+5. Include author names, titles, publication details, years (recent: 2018-2024)
+6. Write in ${langName} language where appropriate
+
+Generate the complete references list:`;
     } else {
       throw new Error('Invalid generation type');
     }
 
-    console.log(`Generating ${type} with model ${model}`);
+    console.log(`Generating ${type} with model ${model}, startingCitation: ${startingCitationNumber}, isConclusion: ${isConclusion}`);
 
     const response = await fetch(GROQ_BASE_URL, {
       method: 'POST',
@@ -139,7 +224,7 @@ Write the complete section content now:`;
     }
 
     const data = await response.json();
-    const content = data.choices[0].message.content;
+    let content = data.choices[0].message.content;
 
     console.log(`Generated ${type} successfully`);
 
@@ -155,8 +240,21 @@ Write the complete section content now:`;
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     } else {
+      // Extract citation count from content
+      let citationsUsed = 0;
+      const citationCountMatch = content.match(/CITATIONS_USED:\s*(\d+)/i);
+      if (citationCountMatch) {
+        citationsUsed = parseInt(citationCountMatch[1], 10);
+        // Remove the citation count line from content
+        content = content.replace(/CITATIONS_USED:\s*\d+/gi, '').trim();
+      } else if (!isConclusion) {
+        // Count citations manually if not provided
+        const citations = content.match(/\[\d+\]/g) || [];
+        citationsUsed = new Set(citations).size;
+      }
+      
       const summary = content.substring(0, 200) + '...';
-      return new Response(JSON.stringify({ content, summary }), {
+      return new Response(JSON.stringify({ content, summary, citationsUsed }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

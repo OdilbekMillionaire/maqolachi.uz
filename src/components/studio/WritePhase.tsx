@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { 
   Sparkles, 
   RefreshCw, 
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus } from "@/store/projectStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -32,8 +33,29 @@ const getStatusBadge = (status: SectionStatus, t: ReturnType<typeof getTranslati
   return { label: statusMap[status], class: `status-${status.toLowerCase()}` };
 };
 
+// Helper to check if section is conclusion
+const isConclusionSection = (sectionName: string): boolean => {
+  const conclusionTerms = ['conclusion', 'xulosa', 'заключение', 'yakun', 'итог'];
+  return conclusionTerms.some(term => sectionName.toLowerCase().includes(term));
+};
+
+// Helper to check if section is references
+const isReferencesSection = (sectionName: string): boolean => {
+  const referenceTerms = ['reference', 'adabiyot', 'литература', 'manba', 'источник', 'bibliography'];
+  return referenceTerms.some(term => sectionName.toLowerCase().includes(term));
+};
+
+// Helper to count citations in content
+const countCitationsInContent = (content: string): number => {
+  if (!content) return 0;
+  const citations = content.match(/\[\d+\]/g) || [];
+  const uniqueNums = new Set(citations.map(c => parseInt(c.replace(/[\[\]]/g, ''))));
+  return uniqueNums.size > 0 ? Math.max(...uniqueNums) : 0;
+};
+
 export const WritePhase = () => {
   const { currentProject, setPhase, updateSection, isGenerating, setIsGenerating, setGenerationProgress } = useProjectStore();
+  const { humanizeContent } = useSettingsStore();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -42,6 +64,30 @@ export const WritePhase = () => {
   const title = currentProject?.title || "";
   const lang = (currentProject?.config?.language || 'uz') as Language;
   const t = getTranslation(lang);
+  
+  // Calculate starting citation number for each section based on prior sections
+  const sectionCitationStarts = useMemo(() => {
+    const starts: Record<string, number> = {};
+    let runningTotal = 1;
+    
+    for (const section of sections) {
+      if (isReferencesSection(section.name)) {
+        starts[section.id] = runningTotal - 1; // References section gets total count
+        continue;
+      }
+      
+      starts[section.id] = runningTotal;
+      
+      if (section.content && !isConclusionSection(section.name)) {
+        const citationsInSection = countCitationsInContent(section.content);
+        if (citationsInSection > 0) {
+          runningTotal = citationsInSection + 1;
+        }
+      }
+    }
+    
+    return starts;
+  }, [sections]);
   
   const handleGenerate = async (sectionId: string, regenMode?: string) => {
     setGeneratingSectionId(sectionId);
@@ -57,27 +103,37 @@ export const WritePhase = () => {
       .filter(s => s.summary)
       .map(s => ({ name: s.name, summary: s.summary }));
     
-    // Calculate target word count for this section (distribute 4000-6000 across sections)
-    const totalSections = sections.length;
-    const targetTotalWords = 5000; // Target middle of 4000-6000 range
+    // Calculate target word count for this section
+    const totalSections = sections.filter(s => !isReferencesSection(s.name)).length;
+    const targetTotalWords = 5000;
     const targetSectionWords = Math.floor(targetTotalWords / totalSections);
+    
+    // Get starting citation number for this section
+    const startingCitationNumber = sectionCitationStarts[sectionId] || 1;
+    const isConclusion = isConclusionSection(section?.name || '');
+    const isReferences = isReferencesSection(section?.name || '');
     
     try {
       setGenerationProgress(t.progressGenerating);
       
+      const requestBody: any = {
+        type: isReferences ? 'references' : 'section',
+        sectionName: section?.name,
+        config: {
+          ...currentProject?.config,
+          title: currentProject?.title,
+          sources: currentProject?.sources || []
+        },
+        priorSummaries,
+        regenMode,
+        targetWordCount: targetSectionWords,
+        startingCitationNumber,
+        isConclusion,
+        humanize: humanizeContent
+      };
+      
       const { data, error } = await supabase.functions.invoke('generate-content', {
-        body: {
-          type: 'section',
-          sectionName: section?.name,
-          config: {
-            ...currentProject?.config,
-            title: currentProject?.title,
-            sources: currentProject?.sources || []
-          },
-          priorSummaries,
-          regenMode,
-          targetWordCount: targetSectionWords
-        }
+        body: requestBody
       });
       
       if (error) throw error;
