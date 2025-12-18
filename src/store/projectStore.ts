@@ -98,13 +98,14 @@ const defaultConfig: ProjectConfig = {
 };
 
 const defaultSections: Section[] = [
-  { id: '1', name: 'Kirish (Introduction)', notes: '', content: '', status: 'EMPTY', summary: '', order: 0 },
-  { id: '2', name: 'Adabiyotlar sharhi (Literature Review)', notes: '', content: '', status: 'EMPTY', summary: '', order: 1 },
-  { id: '3', name: 'Metodologiya (Methodology)', notes: '', content: '', status: 'EMPTY', summary: '', order: 2 },
-  { id: '4', name: 'Natijalar (Results)', notes: '', content: '', status: 'EMPTY', summary: '', order: 3 },
-  { id: '5', name: 'Muhokama (Discussion)', notes: '', content: '', status: 'EMPTY', summary: '', order: 4 },
-  { id: '6', name: 'Xulosa (Conclusion)', notes: '', content: '', status: 'EMPTY', summary: '', order: 5 },
-  { id: '7', name: 'Adabiyotlar (References)', notes: '', content: '', status: 'EMPTY', summary: '', order: 6 },
+  { id: '1', name: 'Annotatsiya (Abstract)', notes: '', content: '', status: 'EMPTY', summary: '', order: 0 },
+  { id: '2', name: 'Kalit so\'zlar (Keywords)', notes: '', content: '', status: 'EMPTY', summary: '', order: 1 },
+  { id: '3', name: 'Kirish (Introduction)', notes: '', content: '', status: 'EMPTY', summary: '', order: 2 },
+  { id: '4', name: 'Metodologiya (Methodology)', notes: '', content: '', status: 'EMPTY', summary: '', order: 3 },
+  { id: '5', name: 'Natijalar (Results)', notes: '', content: '', status: 'EMPTY', summary: '', order: 4 },
+  { id: '6', name: 'Muhokama (Discussion)', notes: '', content: '', status: 'EMPTY', summary: '', order: 5 },
+  { id: '7', name: 'Xulosa (Conclusion)', notes: '', content: '', status: 'EMPTY', summary: '', order: 6 },
+  { id: '8', name: 'Adabiyotlar (References)', notes: '', content: '', status: 'EMPTY', summary: '', order: 7 },
 ];
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
