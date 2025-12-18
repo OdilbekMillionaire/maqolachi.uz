@@ -142,9 +142,25 @@ export const WritePhase = () => {
       } else {
         throw new Error('Invalid response');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating section:', error);
-      toast.error(t.generationError);
+
+      const status =
+        error?.context?.status ??
+        error?.status ??
+        (typeof error?.message === 'string' && error.message.includes('429') ? 429 : undefined);
+
+      if (status === 429) {
+        toast.error(
+          lang === 'uz'
+            ? "AI vaqtincha cheklov qo'ydi (429). Biroz kutib, qaytadan urinib ko'ring."
+            : lang === 'ru'
+              ? 'Превышен лимит запросов (429). Подождите и попробуйте снова.'
+              : 'Rate limit reached (429). Please wait and try again.'
+        );
+      } else {
+        toast.error(t.generationError);
+      }
     } finally {
       setGeneratingSectionId(null);
       setIsGenerating(false);
