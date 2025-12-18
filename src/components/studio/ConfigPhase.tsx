@@ -14,6 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Language, Domain, AcademicLevel, CitationStyle, StyleMode } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const languages: { id: Language; label: string; flag: string }[] = [
   { id: "uz", label: "O'zbek", flag: "🇺🇿" },
@@ -64,22 +66,32 @@ export const ConfigPhase = () => {
     setIsGeneratingTitles(true);
     setGenerationProgress("Sarlavhalar generatsiya qilinmoqda...");
     
-    // Simulate AI generation (replace with actual API call)
-    setTimeout(() => {
-      const mockTitles = [
-        `${config.mainIdea}: nazariy va amaliy jihatlar`,
-        `${config.mainIdea}ni o'rganishning dolzarbligi`,
-        `${config.mainIdea} sohasidagi zamonaviy yondashuvlar`,
-        `${config.mainIdea}: muammolar va yechimlar`,
-        `${config.mainIdea}ning rivojlanish tendentsiyalari`,
-        `${config.mainIdea} bo'yicha qiyosiy tahlil`,
-        `${config.mainIdea}: milliy va xalqaro tajriba`,
-        `${config.mainIdea}ni takomillashtirish yo'llari`,
-      ];
-      setGeneratedTitles(mockTitles);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-content', {
+        body: {
+          type: 'titles',
+          config: {
+            ...config,
+            mainIdea: config.mainIdea,
+          }
+        }
+      });
+      
+      if (error) throw error;
+      
+      if (data?.titles && Array.isArray(data.titles)) {
+        setGeneratedTitles(data.titles);
+        toast.success("Sarlavhalar muvaffaqiyatli generatsiya qilindi!");
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (error) {
+      console.error('Error generating titles:', error);
+      toast.error("Sarlavhalarni generatsiya qilishda xatolik yuz berdi");
+    } finally {
       setIsGeneratingTitles(false);
       setGenerationProgress("");
-    }, 2000);
+    }
   };
   
   const handleSelectTitle = (index: number) => {
