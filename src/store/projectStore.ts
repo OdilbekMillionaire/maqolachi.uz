@@ -27,6 +27,13 @@ export interface Source {
   type: 'URL' | 'DOI' | 'TEXT';
 }
 
+// Citation reference that gets accumulated across sections
+export interface CitationReference {
+  number: number;
+  text: string; // Full reference text (author, title, year, URL, etc.)
+  sectionId: string; // Which section it came from
+}
+
 export interface ProjectConfig {
   language: Language;
   domain: Domain;
@@ -45,6 +52,7 @@ export interface Project {
   config: ProjectConfig;
   sections: Section[];
   sources: Source[];
+  citations: CitationReference[]; // Global citations storage
   currentPhase: Phase;
   createdAt: Date;
   updatedAt: Date;
@@ -68,6 +76,9 @@ interface ProjectState {
   reorderSections: (sections: Section[]) => void;
   addSource: (source: Omit<Source, 'id'>) => void;
   removeSource: (id: string) => void;
+  addCitations: (citations: CitationReference[]) => void;
+  clearCitations: () => void;
+  getNextCitationNumber: () => number;
   setIsGenerating: (value: boolean) => void;
   setGenerationProgress: (value: string) => void;
   saveProject: () => void;
@@ -114,6 +125,7 @@ export const useProjectStore = create<ProjectState>()(
           config: { ...defaultConfig },
           sections: defaultSections.map(s => ({ ...s, id: generateId() })),
           sources: [],
+          citations: [], // Initialize empty citations array
           currentPhase: 'config',
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -249,6 +261,41 @@ export const useProjectStore = create<ProjectState>()(
             updatedAt: new Date(),
           },
         });
+      },
+
+      addCitations: (newCitations) => {
+        const { currentProject } = get();
+        if (!currentProject) return;
+        
+        // Merge new citations, avoiding duplicates by number
+        const existingNumbers = new Set(currentProject.citations.map(c => c.number));
+        const uniqueNew = newCitations.filter(c => !existingNumbers.has(c.number));
+        
+        set({
+          currentProject: {
+            ...currentProject,
+            citations: [...currentProject.citations, ...uniqueNew],
+            updatedAt: new Date(),
+          },
+        });
+      },
+
+      clearCitations: () => {
+        const { currentProject } = get();
+        if (!currentProject) return;
+        set({
+          currentProject: {
+            ...currentProject,
+            citations: [],
+            updatedAt: new Date(),
+          },
+        });
+      },
+
+      getNextCitationNumber: () => {
+        const { currentProject } = get();
+        if (!currentProject || currentProject.citations.length === 0) return 1;
+        return Math.max(...currentProject.citations.map(c => c.number)) + 1;
       },
 
       setIsGenerating: (value) => set({ isGenerating: value }),

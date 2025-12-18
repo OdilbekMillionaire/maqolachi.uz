@@ -11,10 +11,15 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
 const SERPAPI_KEY = Deno.env.get('SERPAPI_KEY');
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
+interface CitationRef {
+  number: number;
+  text: string;
+}
+
 // Function to search using SerpAPI
-async function searchWithSerpAPI(query: string, domain: string): Promise<string> {
+async function searchWithSerpAPI(query: string, domain: string): Promise<{ context: string; sources: CitationRef[] }> {
   const searchQuery = `${query} ${domain} academic research`;
-  const url = `https://serpapi.com/search.json?q=${encodeURIComponent(searchQuery)}&api_key=${SERPAPI_KEY}&num=10`;
+  const url = `https://serpapi.com/search.json?q=${encodeURIComponent(searchQuery)}&api_key=${SERPAPI_KEY}&num=15`;
   
   console.log('Searching with SerpAPI:', searchQuery);
   
@@ -30,12 +35,18 @@ async function searchWithSerpAPI(query: string, domain: string): Promise<string>
   
   // Extract relevant search results
   const organicResults = data.organic_results || [];
-  const searchContext = organicResults.slice(0, 8).map((result: any, i: number) => 
-    `Source ${i + 1}: "${result.title}" - ${result.snippet || ''} (${result.link})`
-  ).join('\n\n');
+  const sources: CitationRef[] = [];
+  
+  const searchContext = organicResults.slice(0, 12).map((result: any, i: number) => {
+    sources.push({
+      number: i + 1,
+      text: `${result.title}. ${result.snippet || ''} URL: ${result.link}`
+    });
+    return `Source ${i + 1}: "${result.title}" - ${result.snippet || ''} (${result.link})`;
+  }).join('\n\n');
   
   console.log(`SerpAPI returned ${organicResults.length} results`);
-  return searchContext;
+  return { context: searchContext, sources };
 }
 
 // Function to call Gemini with web grounding (fallback)
@@ -78,7 +89,7 @@ async function callGeminiWithGrounding(prompt: string, systemPrompt: string): Pr
 // Function to call GROQ with search context
 async function callGroqWithContext(systemPrompt: string, userPrompt: string, searchContext: string, model: string, temperature: number, maxTokens: number): Promise<string> {
   const enhancedPrompt = searchContext 
-    ? `${userPrompt}\n\n--- REAL SOURCES FROM WEB SEARCH (use these for citations) ---\n${searchContext}\n\nUSE THE ABOVE REAL SOURCES for your citations. Format them properly according to the citation style.`
+    ? `${userPrompt}\n\n--- REAL SOURCES FROM WEB SEARCH (use these for citations) ---\n${searchContext}`
     : userPrompt;
 
   const response = await fetch(GROQ_BASE_URL, {
@@ -153,6 +164,8 @@ serve(async (req) => {
       targetWordCount,
       startingCitationNumber,
       isConclusion,
+      isReferences,
+      storedCitations,
       humanize 
     } = await req.json();
 
@@ -208,8 +221,46 @@ Respond with ONLY a JSON array of title strings.`;
       });
     }
 
+    // Handle References section - compile from stored citations
+    if (type === 'references' || isReferences) {
+      console.log('Generating References section from stored citations');
+      
+      const citations = storedCitations || [];
+      
+      if (citations.length === 0) {
+        const noRefsMessage = language === 'uz' 
+          ? 'Hozircha manbalar mavjud emas. Avval boshqa bo\'limlarni yarating.'
+          : language === 'ru'
+          ? 'Источники пока отсутствуют. Сначала сгенерируйте другие разделы.'
+          : 'No references available yet. Generate other sections first.';
+        
+        return new Response(JSON.stringify({ 
+          content: noRefsMessage, 
+          summary: noRefsMessage,
+          citations: []
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Sort citations by number and format them
+      const sortedCitations = [...citations].sort((a: CitationRef, b: CitationRef) => a.number - b.number);
+      
+      const referencesContent = sortedCitations.map((c: CitationRef) => `[${c.number}] ${c.text}`).join('\n\n');
+      
+      const summary = `${citations.length} references compiled`;
+      
+      return new Response(JSON.stringify({ 
+        content: referencesContent, 
+        summary,
+        citations: []
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Section generation
-    if (type === 'section' || type === 'references') {
+    if (type === 'section') {
       const startNum = startingCitationNumber || 1;
       
       const sourcesInfo = sources?.length 
@@ -268,7 +319,7 @@ NO CITATIONS. Summarize findings and provide recommendations.`;
         const content = await callGroq(systemPrompt, userPrompt, model, 0.7, 4000);
         const summary = content.substring(0, 200) + '...';
         
-        return new Response(JSON.stringify({ content, summary, citationsUsed: 0 }), {
+        return new Response(JSON.stringify({ content, summary, citations: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -276,14 +327,14 @@ NO CITATIONS. Summarize findings and provide recommendations.`;
       // For sections that need citations - use web search
       const searchQuery = `${title} ${sectionName} ${domain}`;
       let searchContext = '';
-      let usedSerpAPI = false;
-      let usedGemini = false;
+      let searchSources: CitationRef[] = [];
 
       // Try SerpAPI first
       if (SERPAPI_KEY) {
         try {
-          searchContext = await searchWithSerpAPI(searchQuery, domain);
-          usedSerpAPI = true;
+          const result = await searchWithSerpAPI(searchQuery, domain);
+          searchContext = result.context;
+          searchSources = result.sources;
           console.log('Using SerpAPI for web search');
         } catch (error) {
           console.log('SerpAPI failed (possibly rate limited), falling back to Gemini');
@@ -302,39 +353,64 @@ NO CITATIONS. Summarize findings and provide recommendations.`;
           const geminiSystemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
 Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
 
-RULES:
+CRITICAL FORMAT RULES:
 - Write ONLY in ${langName}
 - RELEVANT to "${sectionName}" and title "${title}"
-- Citations starting from [${startNum}] sequentially
+- Use citations ONLY as numbers [${startNum}], [${startNum + 1}], etc. in the text
+- DO NOT write full reference text in the content
 - Approximately ${wordTarget} words
 - ${domainSpecificCitations}
-- Use web search for REAL, ACCURATE sources${humanizeInstructions}`;
+- Use web search for REAL, ACCURATE sources${humanizeInstructions}
+
+AT THE VERY END, after "---CITATIONS---", list each citation with its full reference:
+[${startNum}] Author, Title, Year, URL
+[${startNum + 1}] Author, Title, Year, URL
+etc.`;
 
           const geminiUserPrompt = `Write "${sectionName}" section for: "${title}"
 Domain: ${domain}, Level: ${academicLevel}, Citation: ${citationStyle}
 Target: ${wordTarget} words, Start citations at [${startNum}]${sourcesInfo}${priorContext}${regenInstructions}
 
-Search web for real sources. Include citations [${startNum}], [${startNum + 1}], etc.
-End with: "CITATIONS_USED: X"`;
+IMPORTANT: Only put [number] citations in the text. Put full references after "---CITATIONS---" at the end.`;
 
-          const content = await callGeminiWithGrounding(geminiUserPrompt, geminiSystemPrompt);
-          usedGemini = true;
+          const rawContent = await callGeminiWithGrounding(geminiUserPrompt, geminiSystemPrompt);
           
-          let citationsUsed = 0;
-          let cleanContent = content;
-          const citationCountMatch = content.match(/CITATIONS_USED:\s*(\d+)/i);
-          if (citationCountMatch) {
-            citationsUsed = parseInt(citationCountMatch[1], 10);
-            cleanContent = content.replace(/CITATIONS_USED:\s*\d+/gi, '').trim();
-          } else {
-            const citations = content.match(/\[\d+\]/g) || [];
-            citationsUsed = new Set(citations).size;
+          // Parse out citations from the end
+          const citationSplit = rawContent.split('---CITATIONS---');
+          let cleanContent = citationSplit[0].trim();
+          const citations: CitationRef[] = [];
+          
+          if (citationSplit.length > 1) {
+            const citationBlock = citationSplit[1];
+            const citationLines = citationBlock.split('\n').filter(l => l.trim());
+            
+            for (const line of citationLines) {
+              const match = line.match(/\[(\d+)\]\s*(.+)/);
+              if (match) {
+                citations.push({
+                  number: parseInt(match[1], 10),
+                  text: match[2].trim()
+                });
+              }
+            }
+          }
+          
+          // If no citations were parsed, try to extract from content
+          if (citations.length === 0) {
+            const inTextCitations = cleanContent.match(/\[\d+\]/g) || [];
+            const uniqueNums = [...new Set(inTextCitations.map(c => parseInt(c.replace(/[\[\]]/g, ''))))];
+            uniqueNums.forEach(num => {
+              citations.push({
+                number: num,
+                text: `Reference ${num} - Source from web search`
+              });
+            });
           }
           
           const summary = cleanContent.substring(0, 200) + '...';
-          console.log(`Generated with Gemini, citations: ${citationsUsed}`);
+          console.log(`Generated with Gemini, citations: ${citations.length}`);
           
-          return new Response(JSON.stringify({ content: cleanContent, summary, citationsUsed }), {
+          return new Response(JSON.stringify({ content: cleanContent, summary, citations }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         } catch (error) {
@@ -350,40 +426,83 @@ End with: "CITATIONS_USED: X"`;
       systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
 Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
 
-RULES:
+CRITICAL FORMAT RULES:
 - Write ONLY in ${langName}
 - RELEVANT to "${sectionName}" and title "${title}"
-- Citations starting from [${startNum}] sequentially
+- Use citations ONLY as numbers [${startNum}], [${startNum + 1}], etc. in the text
+- DO NOT include full reference text in the main content
 - Approximately ${wordTarget} words
 - ${domainSpecificCitations}
-- Use the provided web search results for accurate citations${humanizeInstructions}`;
+- Use the provided web search results for accurate citations${humanizeInstructions}
+
+AT THE VERY END of your response, add "---CITATIONS---" and then list each citation:
+[${startNum}] Full reference text with author, title, year, URL
+[${startNum + 1}] Full reference text...`;
 
       userPrompt = `Write "${sectionName}" section for: "${title}"
 Domain: ${domain}, Level: ${academicLevel}, Citation: ${citationStyle}
 Target: ${wordTarget} words, Start citations at [${startNum}]${sourcesInfo}${priorContext}${regenInstructions}
 
-Include citations [${startNum}], [${startNum + 1}], etc. based on provided sources.
-End with: "CITATIONS_USED: X"`;
+IMPORTANT RULES:
+1. In the main text, only use [number] citations
+2. After "---CITATIONS---", list each citation with full reference details from the sources provided
+3. Make sure each [number] in the text has a corresponding entry in the citations list`;
 
-      console.log(`Generating with GROQ + ${usedSerpAPI ? 'SerpAPI context' : 'no search context'}`);
+      console.log(`Generating with GROQ + ${searchContext ? 'SerpAPI context' : 'no search context'}`);
       
-      const content = await callGroqWithContext(systemPrompt, userPrompt, searchContext, model, 0.7, 4000);
+      const rawContent = await callGroqWithContext(systemPrompt, userPrompt, searchContext, model, 0.7, 4000);
       
-      let citationsUsed = 0;
-      let cleanContent = content;
-      const citationCountMatch = content.match(/CITATIONS_USED:\s*(\d+)/i);
-      if (citationCountMatch) {
-        citationsUsed = parseInt(citationCountMatch[1], 10);
-        cleanContent = content.replace(/CITATIONS_USED:\s*\d+/gi, '').trim();
-      } else {
-        const citations = content.match(/\[\d+\]/g) || [];
-        citationsUsed = new Set(citations).size;
+      // Parse out citations from the end
+      const citationSplit = rawContent.split('---CITATIONS---');
+      let cleanContent = citationSplit[0].trim();
+      const citations: CitationRef[] = [];
+      
+      if (citationSplit.length > 1) {
+        const citationBlock = citationSplit[1];
+        const citationLines = citationBlock.split('\n').filter(l => l.trim());
+        
+        for (const line of citationLines) {
+          const match = line.match(/\[(\d+)\]\s*(.+)/);
+          if (match) {
+            citations.push({
+              number: parseInt(match[1], 10),
+              text: match[2].trim()
+            });
+          }
+        }
       }
       
-      const summary = cleanContent.substring(0, 200) + '...';
-      console.log(`Generated successfully, citations: ${citationsUsed}`);
+      // If citations were found in search, use those for any missing numbers
+      if (searchSources.length > 0 && citations.length === 0) {
+        const inTextCitations = cleanContent.match(/\[\d+\]/g) || [];
+        const uniqueNums = [...new Set(inTextCitations.map(c => parseInt(c.replace(/[\[\]]/g, ''))))].sort((a, b) => a - b);
+        
+        uniqueNums.forEach((num, idx) => {
+          const sourceIdx = num - startNum;
+          if (sourceIdx >= 0 && sourceIdx < searchSources.length) {
+            citations.push({
+              number: num,
+              text: searchSources[sourceIdx].text
+            });
+          } else {
+            citations.push({
+              number: num,
+              text: `Reference ${num} - Academic source`
+            });
+          }
+        });
+      }
       
-      return new Response(JSON.stringify({ content: cleanContent, summary, citationsUsed }), {
+      // Clean up any remaining citation blocks that weren't properly separated
+      cleanContent = cleanContent.replace(/References?:?\s*\n+(\[\d+\].*\n?)+/gi, '').trim();
+      cleanContent = cleanContent.replace(/\*\*References?\*\*:?\s*\n+(\[\d+\].*\n?)+/gi, '').trim();
+      cleanContent = cleanContent.replace(/\*\*CITATIONS_USED:?\s*\d+\*\*/gi, '').trim();
+      cleanContent = cleanContent.replace(/CITATIONS_USED:?\s*\d+/gi, '').trim();
+      
+      const summary = cleanContent.substring(0, 200) + '...';
+      console.log(`Generated successfully, citations: ${citations.length}`);
+      
+      return new Response(JSON.stringify({ content: cleanContent, summary, citations }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
