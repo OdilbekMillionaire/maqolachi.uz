@@ -9,62 +9,66 @@ import {
   Sparkles,
   ArrowRight,
   Loader2,
-  Check
+  Check,
+  Edit3
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Language, Domain, AcademicLevel, CitationStyle, StyleMode } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const languages: { id: Language; label: string; flag: string }[] = [
-  { id: "uz", label: "O'zbek", flag: "🇺🇿" },
-  { id: "en", label: "English", flag: "🇬🇧" },
-  { id: "ru", label: "Русский", flag: "🇷🇺" },
-];
-
-const domains: { id: Domain; label: string; icon: string }[] = [
-  { id: "law", label: "Huquq", icon: "⚖️" },
-  { id: "economics", label: "Iqtisodiyot", icon: "📈" },
-  { id: "cs-ai", label: "IT va AI", icon: "🤖" },
-  { id: "sociology", label: "Sotsiologiya", icon: "👥" },
-  { id: "biology", label: "Biologiya", icon: "🧬" },
-  { id: "history", label: "Tarix", icon: "📜" },
-  { id: "other", label: "Boshqa", icon: "📚" },
-];
-
-const academicLevels: { id: AcademicLevel; label: string }[] = [
-  { id: "bachelor", label: "Bakalavr" },
-  { id: "master", label: "Magistr" },
-  { id: "phd", label: "PhD" },
-];
-
-const citationStyles: { id: CitationStyle; label: string; description: string }[] = [
-  { id: "apa", label: "APA", description: "Ijtimoiy fanlar" },
-  { id: "mla", label: "MLA", description: "Gumanitar fanlar" },
-  { id: "chicago", label: "Chicago", description: "Tarix, san'at" },
-  { id: "oscola", label: "OSCOLA", description: "Huquq" },
-];
-
-const styleModes: { id: StyleMode; label: string; description: string }[] = [
-  { id: "formal", label: "Rasmiy", description: "Akademik va ilmiy" },
-  { id: "natural", label: "Tabiiy", description: "O'qishga oson" },
-  { id: "polished", label: "Sayqallangan", description: "Professional" },
-];
+import { getTranslation } from "@/lib/translations";
 
 export const ConfigPhase = () => {
-  const { currentProject, updateConfig, setGeneratedTitles, setTitle, setPhase, setIsGenerating, setGenerationProgress } = useProjectStore();
+  const { currentProject, updateConfig, setGeneratedTitles, setTitle, setPhase, setGenerationProgress } = useProjectStore();
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false);
   const [selectedTitleIndex, setSelectedTitleIndex] = useState<number | null>(null);
   
   const config = currentProject?.config;
   const generatedTitles = currentProject?.generatedTitles || [];
+  const lang = (config?.language || 'uz') as Language;
+  const t = getTranslation(lang);
+  
+  const languages: { id: Language; label: string; flag: string }[] = [
+    { id: "uz", label: "O'zbek", flag: "🇺🇿" },
+    { id: "en", label: "English", flag: "🇬🇧" },
+    { id: "ru", label: "Русский", flag: "🇷🇺" },
+  ];
+
+  const domains: { id: Domain; label: string; icon: string }[] = [
+    { id: "law", label: t.domainLaw, icon: "⚖️" },
+    { id: "economics", label: t.domainEconomics, icon: "📈" },
+    { id: "cs-ai", label: t.domainCsAi, icon: "🤖" },
+    { id: "sociology", label: t.domainSociology, icon: "👥" },
+    { id: "biology", label: t.domainBiology, icon: "🧬" },
+    { id: "history", label: t.domainHistory, icon: "📜" },
+    { id: "other", label: t.domainOther, icon: "📚" },
+  ];
+
+  const academicLevels: { id: AcademicLevel; label: string }[] = [
+    { id: "bachelor", label: t.levelBachelor },
+    { id: "master", label: t.levelMaster },
+    { id: "phd", label: t.levelPhd },
+  ];
+
+  const citationStyles: { id: CitationStyle; label: string; description: string }[] = [
+    { id: "apa", label: t.citationApa, description: t.citationApaDesc },
+    { id: "mla", label: t.citationMla, description: t.citationMlaDesc },
+    { id: "chicago", label: t.citationChicago, description: t.citationChicagoDesc },
+    { id: "oscola", label: t.citationOscola, description: t.citationOscolaDesc },
+  ];
+
+  const styleModes: { id: StyleMode; label: string; description: string }[] = [
+    { id: "formal", label: t.styleFormal, description: t.styleFormalDesc },
+    { id: "natural", label: t.styleNatural, description: t.styleNaturalDesc },
+    { id: "polished", label: t.stylePolished, description: t.stylePolishedDesc },
+  ];
   
   const handleGenerateTitles = async () => {
     if (!config?.mainIdea) return;
     
     setIsGeneratingTitles(true);
-    setGenerationProgress("Sarlavhalar generatsiya qilinmoqda...");
+    setGenerationProgress(t.generating);
     
     try {
       const { data, error } = await supabase.functions.invoke('generate-content', {
@@ -81,13 +85,13 @@ export const ConfigPhase = () => {
       
       if (data?.titles && Array.isArray(data.titles)) {
         setGeneratedTitles(data.titles);
-        toast.success("Sarlavhalar muvaffaqiyatli generatsiya qilindi!");
+        toast.success(t.titlesGenerated);
       } else {
         throw new Error('Invalid response format');
       }
     } catch (error) {
       console.error('Error generating titles:', error);
-      toast.error("Sarlavhalarni generatsiya qilishda xatolik yuz berdi");
+      toast.error(t.titlesError);
     } finally {
       setIsGeneratingTitles(false);
       setGenerationProgress("");
@@ -97,6 +101,10 @@ export const ConfigPhase = () => {
   const handleSelectTitle = (index: number) => {
     setSelectedTitleIndex(index);
     setTitle(generatedTitles[index]);
+  };
+  
+  const handleTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
   };
   
   const handleNext = () => {
@@ -114,10 +122,8 @@ export const ConfigPhase = () => {
       >
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Loyiha sozlamalari</h1>
-          <p className="text-muted-foreground">
-            Maqola parametrlarini belgilang va asosiy g'oyangizni kiriting
-          </p>
+          <h1 className="text-3xl font-bold mb-2">{t.configTitle}</h1>
+          <p className="text-muted-foreground">{t.configSubtitle}</p>
         </div>
         
         <div className="space-y-8">
@@ -125,7 +131,7 @@ export const ConfigPhase = () => {
           <div className="glass-panel p-6">
             <div className="flex items-center gap-2 mb-4">
               <Globe className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">Til</h2>
+              <h2 className="font-semibold">{t.language}</h2>
             </div>
             <div className="flex gap-3">
               {languages.map((lang) => (
@@ -150,7 +156,7 @@ export const ConfigPhase = () => {
           <div className="glass-panel p-6">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">Soha</h2>
+              <h2 className="font-semibold">{t.domain}</h2>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {domains.map((domain) => (
@@ -176,7 +182,7 @@ export const ConfigPhase = () => {
             <div className="glass-panel p-6">
               <div className="flex items-center gap-2 mb-4">
                 <GraduationCap className="w-5 h-5 text-primary" />
-                <h2 className="font-semibold">Daraja</h2>
+                <h2 className="font-semibold">{t.level}</h2>
               </div>
               <div className="space-y-2">
                 {academicLevels.map((level) => (
@@ -202,7 +208,7 @@ export const ConfigPhase = () => {
             <div className="glass-panel p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Quote className="w-5 h-5 text-primary" />
-                <h2 className="font-semibold">Iqtibos uslubi</h2>
+                <h2 className="font-semibold">{t.citationStyle}</h2>
               </div>
               <div className="space-y-2">
                 {citationStyles.map((style) => (
@@ -233,7 +239,7 @@ export const ConfigPhase = () => {
           <div className="glass-panel p-6">
             <div className="flex items-center gap-2 mb-4">
               <Layout className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">Yozish uslubi</h2>
+              <h2 className="font-semibold">{t.writingStyle}</h2>
             </div>
             <div className="grid md:grid-cols-3 gap-3">
               {styleModes.map((mode) => (
@@ -263,12 +269,12 @@ export const ConfigPhase = () => {
           <div className="glass-panel p-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">Asosiy g'oya / Tadqiqot savoli</h2>
+              <h2 className="font-semibold">{t.mainIdea}</h2>
             </div>
             <textarea
               value={config?.mainIdea || ""}
               onChange={(e) => updateConfig({ mainIdea: e.target.value })}
-              placeholder="Maqolangizning asosiy g'oyasi yoki tadqiqot savolini kiriting..."
+              placeholder={t.mainIdeaPlaceholder}
               className="w-full h-32 bg-secondary/50 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-none"
             />
             
@@ -282,12 +288,12 @@ export const ConfigPhase = () => {
                 {isGeneratingTitles ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Generatsiya...
+                    {t.generating}
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    Sarlavhalar generatsiya qilish
+                    {t.generateTitles}
                   </>
                 )}
               </Button>
@@ -301,7 +307,7 @@ export const ConfigPhase = () => {
               animate={{ opacity: 1, y: 0 }}
               className="glass-panel p-6"
             >
-              <h2 className="font-semibold mb-4">Taklif qilingan sarlavhalar</h2>
+              <h2 className="font-semibold mb-4">{t.suggestedTitles}</h2>
               <div className="space-y-2">
                 {generatedTitles.map((title, index) => (
                   <button
@@ -338,6 +344,31 @@ export const ConfigPhase = () => {
             </motion.div>
           )}
           
+          {/* Editable title field */}
+          {currentProject?.title && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-panel p-6 border-2 border-primary/30"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Edit3 className="w-5 h-5 text-primary" />
+                <h2 className="font-semibold">{t.selectedTitle}</h2>
+              </div>
+              <textarea
+                value={currentProject.title}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                placeholder={t.editTitlePlaceholder}
+                className="w-full h-24 bg-secondary/50 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-none font-serif text-lg leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground mt-2">
+                {lang === 'uz' && "Agar kerak bo'lsa, sarlavhani tahrirlashingiz mumkin"}
+                {lang === 'en' && "You can edit the title if needed"}
+                {lang === 'ru' && "Вы можете отредактировать заголовок при необходимости"}
+              </p>
+            </motion.div>
+          )}
+          
           {/* Next button */}
           <div className="flex justify-end pt-4">
             <Button
@@ -347,7 +378,7 @@ export const ConfigPhase = () => {
               disabled={!canProceed}
               className="gap-2"
             >
-              Keyingi bosqich
+              {t.nextStep}
               <ArrowRight className="w-5 h-5" />
             </Button>
           </div>

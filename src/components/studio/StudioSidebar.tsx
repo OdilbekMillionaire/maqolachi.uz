@@ -17,17 +17,12 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { useProjectStore, Phase, SectionStatus } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
+import { getTranslation, Language } from "@/lib/translations";
 
 interface StudioSidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
 }
-
-const phases: { id: Phase; label: string; icon: React.ElementType }[] = [
-  { id: "config", label: "Konfiguratsiya", icon: Settings },
-  { id: "skeleton", label: "Struktura", icon: Layers },
-  { id: "write", label: "Yozish", icon: Edit3 },
-];
 
 const getStatusIcon = (status: SectionStatus) => {
   switch (status) {
@@ -47,7 +42,15 @@ export const StudioSidebar = ({ isCollapsed, onToggle }: StudioSidebarProps) => 
   
   const currentPhase = currentProject?.currentPhase || "config";
   const sections = currentProject?.sections || [];
-  const title = currentProject?.title || "Yangi loyiha";
+  const lang = (currentProject?.config?.language || 'uz') as Language;
+  const t = getTranslation(lang);
+  const title = currentProject?.title || t.newProject;
+  
+  const phases: { id: Phase; label: string; icon: React.ElementType }[] = [
+    { id: "config", label: t.phaseConfig, icon: Settings },
+    { id: "skeleton", label: t.phaseSkeleton, icon: Layers },
+    { id: "write", label: t.phaseWrite, icon: Edit3 },
+  ];
   
   const getPhaseStatus = (phaseId: Phase): "active" | "completed" | "pending" => {
     const phaseOrder = ["config", "skeleton", "write"];
@@ -108,7 +111,7 @@ export const StudioSidebar = ({ isCollapsed, onToggle }: StudioSidebarProps) => 
             exit={{ opacity: 0 }}
             className="p-4 border-b border-border"
           >
-            <p className="text-xs text-muted-foreground mb-1">Loyiha</p>
+            <p className="text-xs text-muted-foreground mb-1">{t.project}</p>
             <h2 className="font-medium text-sm text-foreground truncate">
               {title}
             </h2>
@@ -126,7 +129,7 @@ export const StudioSidebar = ({ isCollapsed, onToggle }: StudioSidebarProps) => 
               exit={{ opacity: 0 }}
               className="text-xs text-muted-foreground mb-3"
             >
-              Bosqichlar
+              {t.phases}
             </motion.p>
           )}
         </AnimatePresence>
@@ -186,7 +189,7 @@ export const StudioSidebar = ({ isCollapsed, onToggle }: StudioSidebarProps) => 
             exit={{ opacity: 0 }}
             className="flex-1 overflow-y-auto p-4"
           >
-            <p className="text-xs text-muted-foreground mb-3">Bo'limlar</p>
+            <p className="text-xs text-muted-foreground mb-3">{t.sections}</p>
             <div className="space-y-1">
               {sections.map((section) => (
                 <button
@@ -208,15 +211,15 @@ export const StudioSidebar = ({ isCollapsed, onToggle }: StudioSidebarProps) => 
       <div className="mt-auto p-4 border-t border-border space-y-2">
         <Button variant="ghost" size="sm" className={cn("w-full", isCollapsed && "px-0")}>
           <Download className="w-4 h-4" />
-          {!isCollapsed && <span className="ml-2">Eksport</span>}
+          {!isCollapsed && <span className="ml-2">{t.export}</span>}
         </Button>
         <Button variant="ghost" size="sm" className={cn("w-full", isCollapsed && "px-0")}>
           <Share2 className="w-4 h-4" />
-          {!isCollapsed && <span className="ml-2">Ulashish</span>}
+          {!isCollapsed && <span className="ml-2">{t.share}</span>}
         </Button>
         <Button variant="ghost" size="sm" className={cn("w-full", isCollapsed && "px-0")}>
           <History className="w-4 h-4" />
-          {!isCollapsed && <span className="ml-2">Tarix</span>}
+          {!isCollapsed && <span className="ml-2">{t.history}</span>}
         </Button>
       </div>
     </motion.aside>

@@ -11,114 +11,42 @@ import {
   ArrowLeft,
   FileText,
   Loader2,
-  MoreHorizontal
+  MoreHorizontal,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { getTranslation, Language } from "@/lib/translations";
+import { exportToDoc, countWords } from "@/lib/docExport";
 
-const translations = {
-  uz: {
-    status: { GENERATED: "Generatsiya qilindi", EDITED: "Tahrirlandi", DRAFT: "Qoralama", EMPTY: "Bo'sh" },
-    title: "Maqola yozish",
-    subtitle: "Har bir bo'limni AI yordamida generatsiya qiling yoki qo'lda yozing",
-    titleLabel: "Sarlavha",
-    preview: "Oldindan ko'rish",
-    progress: "Jarayon",
-    sections: "bo'lim",
-    content: "Kontent",
-    notes: "Eslatmalar (ixtiyoriy)",
-    notesPlaceholder: "Bu bo'lim uchun eslatmalar...",
-    contentPlaceholder: "Bo'lim kontentini yozing yoki AI yordamida generatsiya qiling...",
-    generating: "Generatsiya...",
-    regenerate: "Qayta generatsiya",
-    generate: "Generatsiya qilish",
-    variants: "Boshqa variantlar",
-    backToStructure: "Strukturaga qaytish",
-    export: "Eksport qilish",
-    progressSteps: ["Kontekst o'rganilmoqda...", "Kontent generatsiya qilinmoqda...", "Sayqallanmoqda..."],
-    mockContent: (sectionName: string) => `Bu ${sectionName} bo'limi uchun generatsiya qilingan kontent namunasi.
-
-Ushbu bo'limda tadqiqot mavzusining asosiy jihatlari tahlil qilinadi. Mavzuning dolzarbligi va ilmiy ahamiyati ko'rsatib o'tiladi.
-
-Tadqiqot metodologiyasi va yondashuvlari batafsil yoritilgan. Olingan natijalar va xulosalar ilmiy jihatdan asoslantirilgan.`,
-    summary: "Bo'lim generatsiya qilindi va asosiy fikrlar yoritildi."
-  },
-  ru: {
-    status: { GENERATED: "Сгенерировано", EDITED: "Отредактировано", DRAFT: "Черновик", EMPTY: "Пусто" },
-    title: "Написание статьи",
-    subtitle: "Генерируйте каждый раздел с помощью ИИ или пишите вручную",
-    titleLabel: "Заголовок",
-    preview: "Предпросмотр",
-    progress: "Прогресс",
-    sections: "разделов",
-    content: "Контент",
-    notes: "Заметки (необязательно)",
-    notesPlaceholder: "Заметки для этого раздела...",
-    contentPlaceholder: "Напишите контент раздела или сгенерируйте с помощью ИИ...",
-    generating: "Генерация...",
-    regenerate: "Перегенерировать",
-    generate: "Сгенерировать",
-    variants: "Другие варианты",
-    backToStructure: "Вернуться к структуре",
-    export: "Экспортировать",
-    progressSteps: ["Изучение контекста...", "Генерация контента...", "Полировка..."],
-    mockContent: (sectionName: string) => `Это пример сгенерированного контента для раздела ${sectionName}.
-
-В данном разделе анализируются основные аспекты темы исследования. Показана актуальность и научная значимость темы.
-
-Подробно описаны методология и подходы исследования. Полученные результаты и выводы научно обоснованы.`,
-    summary: "Раздел сгенерирован, основные идеи изложены."
-  },
-  en: {
-    status: { GENERATED: "Generated", EDITED: "Edited", DRAFT: "Draft", EMPTY: "Empty" },
-    title: "Write Article",
-    subtitle: "Generate each section with AI or write manually",
-    titleLabel: "Title",
-    preview: "Preview",
-    progress: "Progress",
-    sections: "sections",
-    content: "Content",
-    notes: "Notes (optional)",
-    notesPlaceholder: "Notes for this section...",
-    contentPlaceholder: "Write section content or generate with AI...",
-    generating: "Generating...",
-    regenerate: "Regenerate",
-    generate: "Generate",
-    variants: "Other variants",
-    backToStructure: "Back to structure",
-    export: "Export",
-    progressSteps: ["Analyzing context...", "Generating content...", "Polishing..."],
-    mockContent: (sectionName: string) => `This is sample generated content for the ${sectionName} section.
-
-This section analyzes the main aspects of the research topic. The relevance and scientific significance of the topic are demonstrated.
-
-The research methodology and approaches are described in detail. The obtained results and conclusions are scientifically substantiated.`,
-    summary: "Section generated with main ideas covered."
-  }
-};
-
-const getStatusBadge = (status: SectionStatus, lang: 'uz' | 'ru' | 'en') => {
-  const t = translations[lang];
-  return { label: t.status[status], class: `status-${status.toLowerCase()}` };
+const getStatusBadge = (status: SectionStatus, t: ReturnType<typeof getTranslation>) => {
+  const statusMap: Record<SectionStatus, string> = {
+    GENERATED: t.statusGenerated,
+    EDITED: t.statusEdited,
+    DRAFT: t.statusDraft,
+    EMPTY: t.statusEmpty
+  };
+  return { label: statusMap[status], class: `status-${status.toLowerCase()}` };
 };
 
 export const WritePhase = () => {
   const { currentProject, setPhase, updateSection, isGenerating, setIsGenerating, setGenerationProgress } = useProjectStore();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   
   const sections = currentProject?.sections || [];
   const title = currentProject?.title || "";
-  const lang = (currentProject?.config?.language || 'uz') as 'uz' | 'ru' | 'en';
-  const t = translations[lang];
+  const lang = (currentProject?.config?.language || 'uz') as Language;
+  const t = getTranslation(lang);
   
   const handleGenerate = async (sectionId: string, regenMode?: string) => {
     setGeneratingSectionId(sectionId);
     setIsGenerating(true);
-    setGenerationProgress(t.progressSteps[0]);
+    setGenerationProgress(t.progressContext);
     
     const section = sections.find(s => s.id === sectionId);
     const sectionIndex = sections.findIndex(s => s.id === sectionId);
@@ -129,8 +57,13 @@ export const WritePhase = () => {
       .filter(s => s.summary)
       .map(s => ({ name: s.name, summary: s.summary }));
     
+    // Calculate target word count for this section (distribute 4000-6000 across sections)
+    const totalSections = sections.length;
+    const targetTotalWords = 5000; // Target middle of 4000-6000 range
+    const targetSectionWords = Math.floor(targetTotalWords / totalSections);
+    
     try {
-      setGenerationProgress(t.progressSteps[1]);
+      setGenerationProgress(t.progressGenerating);
       
       const { data, error } = await supabase.functions.invoke('generate-content', {
         body: {
@@ -142,13 +75,14 @@ export const WritePhase = () => {
             sources: currentProject?.sources || []
           },
           priorSummaries,
-          regenMode
+          regenMode,
+          targetWordCount: targetSectionWords
         }
       });
       
       if (error) throw error;
       
-      setGenerationProgress(t.progressSteps[2]);
+      setGenerationProgress(t.progressPolishing);
       await new Promise(resolve => setTimeout(resolve, 500));
       
       if (data?.content) {
@@ -157,17 +91,13 @@ export const WritePhase = () => {
           status: "GENERATED",
           summary: data.summary || data.content.substring(0, 200) + '...'
         });
-        toast.success(lang === 'uz' ? "Bo'lim muvaffaqiyatli generatsiya qilindi!" : 
-                      lang === 'ru' ? "Раздел успешно сгенерирован!" : 
-                      "Section generated successfully!");
+        toast.success(t.sectionGenerated);
       } else {
         throw new Error('Invalid response');
       }
     } catch (error) {
       console.error('Error generating section:', error);
-      toast.error(lang === 'uz' ? "Generatsiyada xatolik yuz berdi" : 
-                  lang === 'ru' ? "Ошибка генерации" : 
-                  "Generation error occurred");
+      toast.error(t.generationError);
     } finally {
       setGeneratingSectionId(null);
       setIsGenerating(false);
@@ -185,8 +115,31 @@ export const WritePhase = () => {
     }
   };
   
+  const handleExport = async () => {
+    if (!currentProject) return;
+    
+    setIsExporting(true);
+    try {
+      await exportToDoc({
+        title: currentProject.title,
+        sections: currentProject.sections,
+        language: lang,
+        domain: currentProject.config.domain,
+        academicLevel: currentProject.config.academicLevel,
+        citationStyle: currentProject.config.citationStyle
+      });
+      toast.success(t.exportSuccess);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error(t.exportError);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+  
   const completedSections = sections.filter(s => s.status === "GENERATED" || s.status === "EDITED").length;
   const progress = (completedSections / sections.length) * 100;
+  const totalWords = countWords(sections);
   
   return (
     <div className="max-w-4xl mx-auto">
@@ -197,8 +150,8 @@ export const WritePhase = () => {
       >
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{t.title}</h1>
-          <p className="text-muted-foreground">{t.subtitle}</p>
+          <h1 className="text-3xl font-bold mb-2">{t.writeTitle}</h1>
+          <p className="text-muted-foreground">{t.writeSubtitle}</p>
         </div>
         
         {/* Title and progress */}
@@ -220,7 +173,16 @@ export const WritePhase = () => {
           <div>
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-muted-foreground">{t.progress}</span>
-              <span className="text-foreground font-medium">{completedSections}/{sections.length} {t.sections}</span>
+              <div className="flex items-center gap-4">
+                <span className="text-foreground font-medium">{completedSections}/{sections.length} {t.sectionsCount}</span>
+                <span className="text-muted-foreground">|</span>
+                <span className={cn(
+                  "font-medium",
+                  totalWords >= 4000 && totalWords <= 6000 ? "text-emerald-400" : "text-amber-400"
+                )}>
+                  {totalWords.toLocaleString()} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
+                </span>
+              </div>
             </div>
             <div className="h-2 bg-secondary rounded-full overflow-hidden">
               <motion.div
@@ -238,7 +200,7 @@ export const WritePhase = () => {
           {sections.map((section, index) => {
             const isExpanded = expandedSection === section.id;
             const isGeneratingThis = generatingSectionId === section.id;
-            const statusBadge = getStatusBadge(section.status, lang);
+            const statusBadge = getStatusBadge(section.status, t);
             
             return (
               <motion.div
@@ -361,9 +323,24 @@ export const WritePhase = () => {
             <ArrowLeft className="w-5 h-5" />
             {t.backToStructure}
           </Button>
-          <Button variant="hero" size="lg" className="gap-2">
-            <FileText className="w-5 h-5" />
-            {t.export}
+          <Button 
+            variant="hero" 
+            size="lg" 
+            className="gap-2"
+            onClick={handleExport}
+            disabled={isExporting || completedSections === 0}
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                {t.loading}
+              </>
+            ) : (
+              <>
+                <Download className="w-5 h-5" />
+                {t.exportDoc}
+              </>
+            )}
           </Button>
         </div>
       </motion.div>
