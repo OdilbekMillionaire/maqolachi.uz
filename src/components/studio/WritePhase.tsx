@@ -16,6 +16,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const translations = {
   uz: {
@@ -113,31 +115,65 @@ export const WritePhase = () => {
   const lang = (currentProject?.config?.language || 'uz') as 'uz' | 'ru' | 'en';
   const t = translations[lang];
   
-  const handleGenerate = async (sectionId: string) => {
+  const handleGenerate = async (sectionId: string, regenMode?: string) => {
     setGeneratingSectionId(sectionId);
     setIsGenerating(true);
     setGenerationProgress(t.progressSteps[0]);
     
-    // Simulate generation steps
-    for (let i = 0; i < t.progressSteps.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setGenerationProgress(t.progressSteps[i]);
+    const section = sections.find(s => s.id === sectionId);
+    const sectionIndex = sections.findIndex(s => s.id === sectionId);
+    
+    // Build prior summaries from completed sections
+    const priorSummaries = sections
+      .slice(0, sectionIndex)
+      .filter(s => s.summary)
+      .map(s => ({ name: s.name, summary: s.summary }));
+    
+    try {
+      setGenerationProgress(t.progressSteps[1]);
+      
+      const { data, error } = await supabase.functions.invoke('generate-content', {
+        body: {
+          type: 'section',
+          sectionName: section?.name,
+          config: {
+            ...currentProject?.config,
+            title: currentProject?.title,
+            sources: currentProject?.sources || []
+          },
+          priorSummaries,
+          regenMode
+        }
+      });
+      
+      if (error) throw error;
+      
+      setGenerationProgress(t.progressSteps[2]);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      if (data?.content) {
+        updateSection(sectionId, { 
+          content: data.content, 
+          status: "GENERATED",
+          summary: data.summary || data.content.substring(0, 200) + '...'
+        });
+        toast.success(lang === 'uz' ? "Bo'lim muvaffaqiyatli generatsiya qilindi!" : 
+                      lang === 'ru' ? "Раздел успешно сгенерирован!" : 
+                      "Section generated successfully!");
+      } else {
+        throw new Error('Invalid response');
+      }
+    } catch (error) {
+      console.error('Error generating section:', error);
+      toast.error(lang === 'uz' ? "Generatsiyada xatolik yuz berdi" : 
+                  lang === 'ru' ? "Ошибка генерации" : 
+                  "Generation error occurred");
+    } finally {
+      setGeneratingSectionId(null);
+      setIsGenerating(false);
+      setGenerationProgress("");
+      setExpandedSection(sectionId);
     }
-    
-    // Mock generated content in selected language
-    const sectionName = sections.find(s => s.id === sectionId)?.name || '';
-    const mockContent = t.mockContent(sectionName);
-    
-    updateSection(sectionId, { 
-      content: mockContent, 
-      status: "GENERATED",
-      summary: t.summary
-    });
-    
-    setGeneratingSectionId(null);
-    setIsGenerating(false);
-    setGenerationProgress("");
-    setExpandedSection(sectionId);
   };
   
   const handleContentChange = (sectionId: string, content: string) => {
