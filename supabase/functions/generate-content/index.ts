@@ -16,6 +16,18 @@ interface CitationRef {
   text: string;
 }
 
+class HttpError extends Error {
+  status: number;
+  details?: string;
+
+  constructor(status: number, message: string, details?: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.details = details;
+  }
+}
+
 // Function to search using SerpAPI
 async function searchWithSerpAPI(query: string, domain: string): Promise<{ context: string; sources: CitationRef[] }> {
   const searchQuery = `${query} ${domain} academic research`;
@@ -88,15 +100,15 @@ async function callGeminiWithGrounding(prompt: string, systemPrompt: string): Pr
 
 // Retry wrapper for GROQ rate limits
 async function callGroqWithRetry(
-  systemPrompt: string, 
-  userPrompt: string, 
-  model: string, 
-  temperature: number, 
+  systemPrompt: string,
+  userPrompt: string,
+  model: string,
+  temperature: number,
   maxTokens: number,
   maxRetries: number = 3
 ): Promise<string> {
   let lastError: Error | null = null;
-  
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const response = await fetch(GROQ_BASE_URL, {
@@ -118,29 +130,43 @@ async function callGroqWithRetry(
 
       if (response.status === 429) {
         const waitTime = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s
-        console.log(`GROQ rate limited (429), waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+        lastError = new HttpError(
+          429,
+          'GROQ rate limited (429). Please wait a bit and try again.',
+          `Retry attempt ${attempt + 1}/${maxRetries}`
+        );
+        console.log(
+          `GROQ rate limited (429), waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
         continue;
       }
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('GROQ API error:', response.status, errorText);
-        throw new Error(`GROQ API error: ${response.status}`);
+        throw new HttpError(
+          response.status,
+          `GROQ API error: ${response.status}`,
+          errorText
+        );
       }
 
       const data = await response.json();
-      return data.choices[0].message.content;
+      return data.choices?.[0]?.message?.content ?? '';
     } catch (error) {
       lastError = error as Error;
+
       if (attempt < maxRetries - 1) {
         const waitTime = Math.pow(2, attempt) * 2000;
-        console.log(`GROQ error, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+        console.log(
+          `GROQ error, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     }
   }
-  
+
   throw lastError || new Error('GROQ API failed after retries');
 }
 
@@ -520,6 +546,17 @@ IMPORTANT RULES:
     throw new Error('Invalid generation type');
   } catch (error: unknown) {
     console.error('Error in generate-content:', error);
+
+    if (error instanceof HttpError) {
+      return new Response(
+        JSON.stringify({ error: error.message, details: error.details }),
+        {
+          status: error.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
