@@ -8,9 +8,37 @@ const corsHeaders = {
 
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY');
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+const SERPAPI_KEY = Deno.env.get('SERPAPI_KEY');
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-// Function to call Gemini with web grounding
+// Function to search using SerpAPI
+async function searchWithSerpAPI(query: string, domain: string): Promise<string> {
+  const searchQuery = `${query} ${domain} academic research`;
+  const url = `https://serpapi.com/search.json?q=${encodeURIComponent(searchQuery)}&api_key=${SERPAPI_KEY}&num=10`;
+  
+  console.log('Searching with SerpAPI:', searchQuery);
+  
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('SerpAPI error:', response.status, errorText);
+    throw new Error(`SerpAPI error: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  
+  // Extract relevant search results
+  const organicResults = data.organic_results || [];
+  const searchContext = organicResults.slice(0, 8).map((result: any, i: number) => 
+    `Source ${i + 1}: "${result.title}" - ${result.snippet || ''} (${result.link})`
+  ).join('\n\n');
+  
+  console.log(`SerpAPI returned ${organicResults.length} results`);
+  return searchContext;
+}
+
+// Function to call Gemini with web grounding (fallback)
 async function callGeminiWithGrounding(prompt: string, systemPrompt: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
   
@@ -43,14 +71,44 @@ async function callGeminiWithGrounding(prompt: string, systemPrompt: string): Pr
   }
 
   const data = await response.json();
-  console.log('Gemini response received');
-  
-  // Extract text from response
   const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   return content;
 }
 
-// Function to call GROQ
+// Function to call GROQ with search context
+async function callGroqWithContext(systemPrompt: string, userPrompt: string, searchContext: string, model: string, temperature: number, maxTokens: number): Promise<string> {
+  const enhancedPrompt = searchContext 
+    ? `${userPrompt}\n\n--- REAL SOURCES FROM WEB SEARCH (use these for citations) ---\n${searchContext}\n\nUSE THE ABOVE REAL SOURCES for your citations. Format them properly according to the citation style.`
+    : userPrompt;
+
+  const response = await fetch(GROQ_BASE_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: enhancedPrompt }
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('GROQ API error:', response.status, errorText);
+    throw new Error(`GROQ API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+// Function to call GROQ without search
 async function callGroq(systemPrompt: string, userPrompt: string, model: string, temperature: number, maxTokens: number): Promise<string> {
   const response = await fetch(GROQ_BASE_URL, {
     method: 'POST',
@@ -104,7 +162,6 @@ serve(async (req) => {
 
     const { language, domain, academicLevel, citationStyle, styleMode, modelMode, mainIdea, title, sources } = config || {};
     
-    const useGemini = !!GEMINI_API_KEY && type === 'section' && !isConclusion;
     const model = modelMode === 'quality' ? 'llama-3.3-70b-versatile' : 'llama-3.1-8b-instant';
     
     const languageNames: Record<string, string> = {
@@ -134,164 +191,10 @@ Requirements:
 - Make titles specific and engaging
 
 Respond with ONLY a JSON array of title strings.`;
-    } else if (type === 'section') {
-      const startNum = startingCitationNumber || 1;
+
+      // Titles don't need web search
+      const content = await callGroq(systemPrompt, userPrompt, model, 0.9, 1000);
       
-      const sourcesInfo = sources?.length 
-        ? `\n\nUser-provided sources (cite these with sequential numbers starting from [${startNum}]):\n${sources.map((s: any, i: number) => `[${startNum + i}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
-        : '';
-
-      const priorContext = priorSummaries?.length
-        ? `\n\nPrior sections context (maintain continuity, continue citation numbering from [${startNum}]):\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
-        : '';
-
-      let regenInstructions = '';
-      if (regenMode) {
-        const regenModes: Record<string, string> = {
-          concise: 'Make the content more concise and to the point.',
-          technical: 'Make the content more technical and detailed.',
-          counterargument: 'Add counterarguments and alternative perspectives.',
-          examples: 'Add more examples, case studies, or illustrations.',
-          transitions: 'Improve transitions and overall flow.'
-        };
-        regenInstructions = `\n\nSpecial instruction: ${regenModes[regenMode] || regenMode}`;
-      }
-
-      const wordTarget = targetWordCount || 700;
-      
-      const humanizeInstructions = humanize ? `
-
-HUMANIZATION INSTRUCTIONS (make text natural and undetectable by AI detectors):
-- Vary sentence length significantly (mix very short with longer complex sentences)
-- Use occasional contractions, informal transitions, and natural speech patterns
-- Include personal observations, rhetorical questions, and engaging hooks
-- Add slight imperfections like parenthetical asides or mid-sentence clarifications
-- Use diverse vocabulary - avoid repetitive academic phrases
-- Include occasional hedging language ("perhaps", "it seems", "one might argue")
-- Write as a knowledgeable human expert would, not as a machine
-- Vary paragraph lengths and structure unpredictably
-- Use active voice predominantly, with occasional passive for emphasis` : '';
-
-      if (isConclusion) {
-        systemPrompt = `You are an expert academic writer specializing in ${domain} research at the ${academicLevel} level.
-You write in ${langName} language using ${citationStyle} citation style.
-Your writing style is ${styleMode}.
-
-CRITICAL RULES FOR CONCLUSION:
-- Write ONLY in ${langName} language
-- The section MUST be DIRECTLY RELEVANT to the section name "${sectionName}" and the article title "${title}"
-- DO NOT include ANY citations or references [1], [2], etc. in the conclusion
-- Generate approximately ${wordTarget} words for this section
-- Summarize key findings and provide final thoughts
-- Maintain academic rigor appropriate for ${academicLevel} level${humanizeInstructions}`;
-
-        userPrompt = `Write the "${sectionName}" (Conclusion) section for an academic article.
-
-Article title: ${title || 'Untitled'}
-Domain: ${domain}
-Academic level: ${academicLevel}
-Target word count: ${wordTarget} words${priorContext}
-
-CRITICAL REQUIREMENTS:
-1. This is the CONCLUSION section - DO NOT include any citations [1], [2], etc.
-2. Summarize the main findings and arguments from previous sections
-3. Provide implications, recommendations, or future research directions
-4. Write comprehensive, detailed content (approximately ${wordTarget} words)
-5. End with a strong closing statement
-
-Write the complete conclusion section now (NO CITATIONS):`;
-      } else {
-        const domainSpecificCitations = domain === 'law' 
-          ? `For Law domain: 
-- Search for and cite REAL laws, legal codes, regulations, court cases
-- Include specific article numbers, case names, and dates
-- Reference actual legal frameworks and precedents`
-          : `For ${domain} domain:
-- Search for and cite REAL academic sources, research papers, books
-- Include actual author names, publication titles, and years
-- Reference established theories and recent research`;
-
-        systemPrompt = `You are an expert academic writer specializing in ${domain} research at the ${academicLevel} level.
-You write in ${langName} language using ${citationStyle} citation style.
-Your writing style is ${styleMode}.
-
-CRITICAL RULES:
-- Write ONLY in ${langName} language
-- The section MUST be DIRECTLY RELEVANT to the section name "${sectionName}" and the article title "${title}"
-- Include numbered citations starting from [${startNum}] sequentially
-- Generate approximately ${wordTarget} words for this section
-- ${domainSpecificCitations}
-- Use web search to find REAL, ACCURATE sources and information
-- Each citation must reference a real, verifiable source
-- Maintain academic rigor appropriate for ${academicLevel} level${humanizeInstructions}`;
-
-        userPrompt = `Write the "${sectionName}" section for an academic article.
-
-Article title: ${title || 'Untitled'}
-Domain: ${domain}
-Academic level: ${academicLevel}
-Citation style: ${citationStyle}
-Target word count: ${wordTarget} words
-Starting citation number: [${startNum}]${sourcesInfo}${priorContext}${regenInstructions}${extraInstructions ? `\n\nAdditional instructions: ${extraInstructions}` : ''}
-
-IMPORTANT REQUIREMENTS:
-1. The content MUST be specifically about "${sectionName}"
-2. Stay focused on the article's main topic: "${title}"
-3. SEARCH THE WEB for real, accurate information about this topic
-4. Include academic citations using sequential numbered format starting from [${startNum}]
-5. Write comprehensive, detailed content (approximately ${wordTarget} words)
-6. Maintain continuity with prior sections if provided
-7. Use formal academic language appropriate for ${academicLevel} level
-8. At the END of your response, add: "CITATIONS_USED: X" where X is the count
-
-Write the complete section content now:`;
-      }
-    } else if (type === 'references') {
-      const totalCitations = startingCitationNumber || 10;
-      
-      systemPrompt = `You are an expert academic writer creating a references/bibliography section.
-You write in ${langName} language using ${citationStyle} citation style.
-IMPORTANT: Search the web to find REAL sources and format them properly.`;
-
-      userPrompt = `Create a References section with ${totalCitations} entries for an academic article.
-
-Article title: ${title || 'Untitled'}
-Domain: ${domain}
-Citation style: ${citationStyle}
-Number of references needed: ${totalCitations}
-
-Requirements:
-1. Format each reference according to ${citationStyle} style
-2. SEARCH THE WEB to find REAL sources about this topic
-3. Include a mix of: ${domain === 'law' ? 'legal codes, court cases, legal journals' : 'journal articles, books, conference papers'}
-4. Number each reference [1], [2], [3], etc. up to [${totalCitations}]
-5. Each reference MUST be a real, verifiable source
-6. Include author names, titles, publication details, years (recent: 2018-2024)
-
-Generate the complete references list with REAL sources:`;
-    } else {
-      throw new Error('Invalid generation type');
-    }
-
-    console.log(`Generating ${type} with ${useGemini ? 'Gemini (web grounding)' : 'GROQ'}, startingCitation: ${startingCitationNumber}, isConclusion: ${isConclusion}`);
-
-    let content: string;
-    
-    if (useGemini) {
-      content = await callGeminiWithGrounding(userPrompt, systemPrompt);
-    } else {
-      content = await callGroq(
-        systemPrompt, 
-        userPrompt, 
-        model, 
-        type === 'titles' ? 0.9 : 0.7,
-        type === 'titles' ? 1000 : 4000
-      );
-    }
-
-    console.log(`Generated ${type} successfully`);
-
-    if (type === 'titles') {
       let titles: string[];
       try {
         const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -299,25 +202,193 @@ Generate the complete references list with REAL sources:`;
       } catch {
         titles = content.split('\n').filter((line: string) => line.trim()).slice(0, 12);
       }
+      
       return new Response(JSON.stringify({ titles }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-    } else {
+    }
+
+    // Section generation
+    if (type === 'section' || type === 'references') {
+      const startNum = startingCitationNumber || 1;
+      
+      const sourcesInfo = sources?.length 
+        ? `\n\nUser-provided sources (cite these first):\n${sources.map((s: any, i: number) => `[${startNum + i}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
+        : '';
+
+      const priorContext = priorSummaries?.length
+        ? `\n\nPrior sections (maintain continuity):\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
+        : '';
+
+      let regenInstructions = '';
+      if (regenMode) {
+        const regenModes: Record<string, string> = {
+          concise: 'Make the content more concise.',
+          technical: 'Make the content more technical.',
+          counterargument: 'Add counterarguments.',
+          examples: 'Add more examples.',
+          transitions: 'Improve transitions.'
+        };
+        regenInstructions = `\n\nSpecial: ${regenModes[regenMode] || regenMode}`;
+      }
+
+      const wordTarget = targetWordCount || 700;
+      
+      const humanizeInstructions = humanize ? `
+
+HUMANIZATION (make text natural, undetectable by AI detectors):
+- Vary sentence length significantly
+- Use occasional contractions and natural transitions
+- Include rhetorical questions and engaging hooks
+- Add parenthetical asides and mid-sentence clarifications
+- Use diverse vocabulary, avoid repetitive phrases
+- Include hedging language ("perhaps", "it seems", "one might argue")
+- Write as a knowledgeable human expert
+- Vary paragraph lengths unpredictably
+- Use active voice predominantly` : '';
+
+      // Handle conclusion (no citations needed)
+      if (isConclusion) {
+        systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
+Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
+
+CONCLUSION RULES:
+- Write ONLY in ${langName}
+- RELEVANT to "${sectionName}" and title "${title}"
+- NO citations [1], [2] in conclusion
+- Approximately ${wordTarget} words
+- Summarize findings, provide final thoughts${humanizeInstructions}`;
+
+        userPrompt = `Write "${sectionName}" (Conclusion) for: "${title}"
+Domain: ${domain}, Level: ${academicLevel}
+Target: ${wordTarget} words${priorContext}
+
+NO CITATIONS. Summarize findings and provide recommendations.`;
+
+        const content = await callGroq(systemPrompt, userPrompt, model, 0.7, 4000);
+        const summary = content.substring(0, 200) + '...';
+        
+        return new Response(JSON.stringify({ content, summary, citationsUsed: 0 }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // For sections that need citations - use web search
+      const searchQuery = `${title} ${sectionName} ${domain}`;
+      let searchContext = '';
+      let usedSerpAPI = false;
+      let usedGemini = false;
+
+      // Try SerpAPI first
+      if (SERPAPI_KEY) {
+        try {
+          searchContext = await searchWithSerpAPI(searchQuery, domain);
+          usedSerpAPI = true;
+          console.log('Using SerpAPI for web search');
+        } catch (error) {
+          console.log('SerpAPI failed (possibly rate limited), falling back to Gemini');
+        }
+      }
+
+      // If SerpAPI failed or not available, try Gemini
+      if (!searchContext && GEMINI_API_KEY) {
+        try {
+          console.log('Using Gemini with web grounding as fallback');
+          
+          const domainSpecificCitations = domain === 'law' 
+            ? 'Cite REAL laws, legal codes, regulations, court cases with specific article numbers and dates.'
+            : 'Cite REAL academic sources, research papers with author names and years.';
+
+          const geminiSystemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
+Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
+
+RULES:
+- Write ONLY in ${langName}
+- RELEVANT to "${sectionName}" and title "${title}"
+- Citations starting from [${startNum}] sequentially
+- Approximately ${wordTarget} words
+- ${domainSpecificCitations}
+- Use web search for REAL, ACCURATE sources${humanizeInstructions}`;
+
+          const geminiUserPrompt = `Write "${sectionName}" section for: "${title}"
+Domain: ${domain}, Level: ${academicLevel}, Citation: ${citationStyle}
+Target: ${wordTarget} words, Start citations at [${startNum}]${sourcesInfo}${priorContext}${regenInstructions}
+
+Search web for real sources. Include citations [${startNum}], [${startNum + 1}], etc.
+End with: "CITATIONS_USED: X"`;
+
+          const content = await callGeminiWithGrounding(geminiUserPrompt, geminiSystemPrompt);
+          usedGemini = true;
+          
+          let citationsUsed = 0;
+          let cleanContent = content;
+          const citationCountMatch = content.match(/CITATIONS_USED:\s*(\d+)/i);
+          if (citationCountMatch) {
+            citationsUsed = parseInt(citationCountMatch[1], 10);
+            cleanContent = content.replace(/CITATIONS_USED:\s*\d+/gi, '').trim();
+          } else {
+            const citations = content.match(/\[\d+\]/g) || [];
+            citationsUsed = new Set(citations).size;
+          }
+          
+          const summary = cleanContent.substring(0, 200) + '...';
+          console.log(`Generated with Gemini, citations: ${citationsUsed}`);
+          
+          return new Response(JSON.stringify({ content: cleanContent, summary, citationsUsed }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          console.error('Gemini also failed:', error);
+        }
+      }
+
+      // Use GROQ with search context (or without if no search available)
+      const domainSpecificCitations = domain === 'law' 
+        ? 'Cite laws, legal codes, regulations, court cases with specific article numbers.'
+        : 'Cite academic sources, research papers with author names and years.';
+
+      systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
+Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
+
+RULES:
+- Write ONLY in ${langName}
+- RELEVANT to "${sectionName}" and title "${title}"
+- Citations starting from [${startNum}] sequentially
+- Approximately ${wordTarget} words
+- ${domainSpecificCitations}
+- Use the provided web search results for accurate citations${humanizeInstructions}`;
+
+      userPrompt = `Write "${sectionName}" section for: "${title}"
+Domain: ${domain}, Level: ${academicLevel}, Citation: ${citationStyle}
+Target: ${wordTarget} words, Start citations at [${startNum}]${sourcesInfo}${priorContext}${regenInstructions}
+
+Include citations [${startNum}], [${startNum + 1}], etc. based on provided sources.
+End with: "CITATIONS_USED: X"`;
+
+      console.log(`Generating with GROQ + ${usedSerpAPI ? 'SerpAPI context' : 'no search context'}`);
+      
+      const content = await callGroqWithContext(systemPrompt, userPrompt, searchContext, model, 0.7, 4000);
+      
       let citationsUsed = 0;
+      let cleanContent = content;
       const citationCountMatch = content.match(/CITATIONS_USED:\s*(\d+)/i);
       if (citationCountMatch) {
         citationsUsed = parseInt(citationCountMatch[1], 10);
-        content = content.replace(/CITATIONS_USED:\s*\d+/gi, '').trim();
-      } else if (!isConclusion) {
+        cleanContent = content.replace(/CITATIONS_USED:\s*\d+/gi, '').trim();
+      } else {
         const citations = content.match(/\[\d+\]/g) || [];
         citationsUsed = new Set(citations).size;
       }
       
-      const summary = content.substring(0, 200) + '...';
-      return new Response(JSON.stringify({ content, summary, citationsUsed }), {
+      const summary = cleanContent.substring(0, 200) + '...';
+      console.log(`Generated successfully, citations: ${citationsUsed}`);
+      
+      return new Response(JSON.stringify({ content: cleanContent, summary, citationsUsed }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    throw new Error('Invalid generation type');
   } catch (error: unknown) {
     console.error('Error in generate-content:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
