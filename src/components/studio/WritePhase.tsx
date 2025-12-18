@@ -15,7 +15,7 @@ import {
   Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useProjectStore, Section, SectionStatus } from "@/store/projectStore";
+import { useProjectStore, Section, SectionStatus, CitationReference } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -45,16 +45,17 @@ const isReferencesSection = (sectionName: string): boolean => {
   return referenceTerms.some(term => sectionName.toLowerCase().includes(term));
 };
 
-// Helper to count citations in content
-const countCitationsInContent = (content: string): number => {
-  if (!content) return 0;
-  const citations = content.match(/\[\d+\]/g) || [];
-  const uniqueNums = new Set(citations.map(c => parseInt(c.replace(/[\[\]]/g, ''))));
-  return uniqueNums.size > 0 ? Math.max(...uniqueNums) : 0;
-};
-
 export const WritePhase = () => {
-  const { currentProject, setPhase, updateSection, isGenerating, setIsGenerating, setGenerationProgress } = useProjectStore();
+  const { 
+    currentProject, 
+    setPhase, 
+    updateSection, 
+    isGenerating, 
+    setIsGenerating, 
+    setGenerationProgress,
+    addCitations,
+    getNextCitationNumber 
+  } = useProjectStore();
   const { humanizeContent } = useSettingsStore();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
@@ -64,30 +65,7 @@ export const WritePhase = () => {
   const title = currentProject?.title || "";
   const lang = (currentProject?.config?.language || 'uz') as Language;
   const t = getTranslation(lang);
-  
-  // Calculate starting citation number for each section based on prior sections
-  const sectionCitationStarts = useMemo(() => {
-    const starts: Record<string, number> = {};
-    let runningTotal = 1;
-    
-    for (const section of sections) {
-      if (isReferencesSection(section.name)) {
-        starts[section.id] = runningTotal - 1; // References section gets total count
-        continue;
-      }
-      
-      starts[section.id] = runningTotal;
-      
-      if (section.content && !isConclusionSection(section.name)) {
-        const citationsInSection = countCitationsInContent(section.content);
-        if (citationsInSection > 0) {
-          runningTotal = citationsInSection + 1;
-        }
-      }
-    }
-    
-    return starts;
-  }, [sections]);
+  const storedCitations = currentProject?.citations || [];
   
   const handleGenerate = async (sectionId: string, regenMode?: string) => {
     setGeneratingSectionId(sectionId);
@@ -108,8 +86,8 @@ export const WritePhase = () => {
     const targetTotalWords = 5000;
     const targetSectionWords = Math.floor(targetTotalWords / totalSections);
     
-    // Get starting citation number for this section
-    const startingCitationNumber = sectionCitationStarts[sectionId] || 1;
+    // Get starting citation number from stored citations
+    const startingCitationNumber = getNextCitationNumber();
     const isConclusion = isConclusionSection(section?.name || '');
     const isReferences = isReferencesSection(section?.name || '');
     
@@ -129,6 +107,8 @@ export const WritePhase = () => {
         targetWordCount: targetSectionWords,
         startingCitationNumber,
         isConclusion,
+        isReferences,
+        storedCitations: storedCitations, // Pass stored citations for references section
         humanize: humanizeContent
       };
       
@@ -147,6 +127,17 @@ export const WritePhase = () => {
           status: "GENERATED",
           summary: data.summary || data.content.substring(0, 200) + '...'
         });
+        
+        // Store citations from this section (if any)
+        if (data.citations && data.citations.length > 0) {
+          const citationsWithSectionId: CitationReference[] = data.citations.map((c: any) => ({
+            number: c.number,
+            text: c.text,
+            sectionId: sectionId
+          }));
+          addCitations(citationsWithSectionId);
+        }
+        
         toast.success(t.sectionGenerated);
       } else {
         throw new Error('Invalid response');
@@ -238,6 +229,10 @@ export const WritePhase = () => {
                 )}>
                   {totalWords.toLocaleString()} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
                 </span>
+                <span className="text-muted-foreground">|</span>
+                <span className="text-muted-foreground text-xs">
+                  {storedCitations.length} {lang === 'uz' ? "manba" : lang === 'ru' ? "источников" : "sources"}
+                </span>
               </div>
             </div>
             <div className="h-2 bg-secondary rounded-full overflow-hidden">
@@ -257,6 +252,7 @@ export const WritePhase = () => {
             const isExpanded = expandedSection === section.id;
             const isGeneratingThis = generatingSectionId === section.id;
             const statusBadge = getStatusBadge(section.status, t);
+            const isRefs = isReferencesSection(section.name);
             
             return (
               <motion.div
@@ -285,6 +281,11 @@ export const WritePhase = () => {
                         <span className={cn("text-xs px-2 py-0.5 rounded-full", statusBadge.class)}>
                           {statusBadge.label}
                         </span>
+                        {isRefs && storedCitations.length > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            ({storedCitations.length} {lang === 'uz' ? "ta" : ""})
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -310,7 +311,7 @@ export const WritePhase = () => {
                         <div className="flex items-center gap-2">
                           <Button
                             onClick={() => handleGenerate(section.id)}
-                            disabled={isGenerating}
+                            disabled={isGenerating || (isRefs && storedCitations.length === 0)}
                             className="gap-2"
                           >
                             {isGeneratingThis ? (
@@ -325,13 +326,24 @@ export const WritePhase = () => {
                               </>
                             )}
                           </Button>
-                          {section.content && (
+                          {section.content && !isRefs && (
                             <Button variant="outline" className="gap-2">
                               <MoreHorizontal className="w-4 h-4" />
                               {t.variants}
                             </Button>
                           )}
                         </div>
+                        
+                        {/* Info for references section */}
+                        {isRefs && storedCitations.length === 0 && (
+                          <div className="text-sm text-muted-foreground bg-secondary/30 rounded-lg p-3">
+                            {lang === 'uz' 
+                              ? "Avval boshqa bo'limlarni yarating. Manbalar avtomatik to'planadi."
+                              : lang === 'ru'
+                              ? "Сначала сгенерируйте другие разделы. Источники будут собраны автоматически."
+                              : "Generate other sections first. References will be collected automatically."}
+                          </div>
+                        )}
                         
                         {/* Content editor */}
                         <div>

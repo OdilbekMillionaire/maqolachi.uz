@@ -10,10 +10,12 @@ import {
   ArrowRight,
   Loader2,
   Check,
-  Edit3
+  Edit3,
+  Wand2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Language, Domain, AcademicLevel, CitationStyle, StyleMode } from "@/store/projectStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -21,6 +23,7 @@ import { getTranslation } from "@/lib/translations";
 
 export const ConfigPhase = () => {
   const { currentProject, updateConfig, setGeneratedTitles, setTitle, setPhase, setGenerationProgress } = useProjectStore();
+  const { humanizeContent, setHumanizeContent } = useSettingsStore();
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false);
   const [selectedTitleIndex, setSelectedTitleIndex] = useState<number | null>(null);
   
@@ -263,6 +266,51 @@ export const ConfigPhase = () => {
                 </button>
               ))}
             </div>
+          </div>
+          
+          {/* Humanization toggle */}
+          <div className="glass-panel p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Wand2 className="w-5 h-5 text-primary" />
+              <h2 className="font-semibold">
+                {lang === 'uz' ? 'Humanizatsiya' : lang === 'ru' ? 'Гуманизация' : 'Humanization'}
+              </h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              {lang === 'uz' 
+                ? "AI detektorlari tomonidan aniqlanmaydigan matn yaratish"
+                : lang === 'ru'
+                ? 'Создание текста, не определяемого детекторами ИИ'
+                : 'Generate text undetectable by AI detectors'}
+            </p>
+            <button
+              onClick={() => setHumanizeContent(!humanizeContent)}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all",
+                humanizeContent
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <Sparkles className="w-4 h-4" />
+                <span className="text-sm font-medium">
+                  {humanizeContent 
+                    ? (lang === 'uz' ? 'Yoqilgan' : lang === 'ru' ? 'Включено' : 'Enabled')
+                    : (lang === 'uz' ? "O'chirilgan" : lang === 'ru' ? 'Отключено' : 'Disabled')
+                  }
+                </span>
+              </div>
+              <div className={cn(
+                "w-10 h-6 rounded-full p-1 transition-colors",
+                humanizeContent ? "bg-primary" : "bg-muted"
+              )}>
+                <div className={cn(
+                  "w-4 h-4 rounded-full bg-white transition-transform",
+                  humanizeContent && "translate-x-4"
+                )} />
+              </div>
+            </button>
           </div>
           
           {/* Main idea input */}
