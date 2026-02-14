@@ -1,25 +1,28 @@
 import { motion } from "framer-motion";
-import { useState } from "react";
-import { 
-  Globe, 
-  BookOpen, 
-  GraduationCap, 
-  Quote, 
-  Layout, 
+import { useState, useMemo } from "react";
+import {
+  Globe,
+  BookOpen,
+  GraduationCap,
+  Quote,
+  Layout,
   Sparkles,
   ArrowRight,
   Loader2,
   Check,
   Edit3,
-  Wand2
+  Wand2,
+  CreditCard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Language, Domain, AcademicLevel, CitationStyle, StyleMode } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePaymentStore } from "@/store/paymentStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { getTranslation } from "@/lib/translations";
+import { calculatePrice, formatPrice, type PricingFactors } from "@/lib/pricing";
 
 export const ConfigPhase = () => {
   const { currentProject, updateConfig, setGeneratedTitles, setTitle, setPhase, setGenerationProgress } = useProjectStore();
@@ -115,7 +118,24 @@ export const ConfigPhase = () => {
   };
   
   const canProceed = currentProject?.title && config?.mainIdea;
-  
+
+  const { setRequiredAmount } = usePaymentStore();
+
+  const priceBreakdown = useMemo(() => {
+    const factors: PricingFactors = {
+      academicLevel: config?.academicLevel || 'bachelor',
+      domain: config?.domain || 'other',
+      humanize: humanizeContent,
+      modelMode: config?.modelMode || 'fast',
+      styleMode: config?.styleMode || 'formal',
+      citationStyle: config?.citationStyle || 'apa',
+      sectionCount: currentProject?.sections?.length || 7,
+    };
+    const breakdown = calculatePrice(factors);
+    setRequiredAmount(breakdown.total);
+    return breakdown;
+  }, [config, humanizeContent, currentProject?.sections?.length]);
+
   return (
     <div className="max-w-4xl mx-auto">
       <motion.div
@@ -417,6 +437,84 @@ export const ConfigPhase = () => {
             </motion.div>
           )}
           
+          {/* Live pricing calculator */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-panel p-6 border-2 border-primary/20"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <CreditCard className="w-5 h-5 text-primary" />
+              <h2 className="font-semibold">
+                {lang === 'uz' ? "Narx kalkulyatori" : lang === 'ru' ? 'Калькулятор цен' : 'Price Calculator'}
+              </h2>
+            </div>
+
+            <div className="space-y-2 text-sm mb-4">
+              <div className="flex justify-between text-muted-foreground">
+                <span>{lang === 'uz' ? "Asosiy narx" : lang === 'ru' ? 'Базовая цена' : 'Base price'}</span>
+                <span>{formatPrice(priceBreakdown.base)}</span>
+              </div>
+              {priceBreakdown.levelAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Akademik daraja" : lang === 'ru' ? 'Акад. уровень' : 'Academic level'}</span>
+                  <span>+{formatPrice(priceBreakdown.levelAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.domainAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Soha murakkabligi" : lang === 'ru' ? 'Сложность области' : 'Domain'}</span>
+                  <span>+{formatPrice(priceBreakdown.domainAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.humanizeAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Humanizatsiya" : lang === 'ru' ? 'Гуманизация' : 'Humanization'}</span>
+                  <span>+{formatPrice(priceBreakdown.humanizeAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.qualityAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Sifatli rejim" : lang === 'ru' ? 'Режим качества' : 'Quality mode'}</span>
+                  <span>+{formatPrice(priceBreakdown.qualityAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.styleAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Yozish uslubi" : lang === 'ru' ? 'Стиль письма' : 'Writing style'}</span>
+                  <span>+{formatPrice(priceBreakdown.styleAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.citationAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Iqtibos formati" : lang === 'ru' ? 'Формат цитат' : 'Citation style'}</span>
+                  <span>+{formatPrice(priceBreakdown.citationAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.sectionsAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Qo'shimcha bo'limlar" : lang === 'ru' ? 'Доп. разделы' : 'Extra sections'}</span>
+                  <span>+{formatPrice(priceBreakdown.sectionsAddon)}</span>
+                </div>
+              )}
+              <div className="border-t border-border pt-3 mt-3 flex justify-between items-center">
+                <span className="font-semibold text-foreground text-base">
+                  {lang === 'uz' ? "Jami" : lang === 'ru' ? 'Итого' : 'Total'}
+                </span>
+                <span className="text-2xl font-bold text-primary">
+                  {formatPrice(priceBreakdown.total)}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {lang === 'uz'
+                ? "Yuqoridagi sozlamalarni o'zgartirsangiz, narx avtomatik yangilanadi"
+                : lang === 'ru'
+                ? 'Цена автоматически обновляется при изменении настроек'
+                : 'Price updates automatically as you change settings'}
+            </p>
+          </motion.div>
+
           {/* Next button */}
           <div className="flex justify-end pt-4">
             <Button
