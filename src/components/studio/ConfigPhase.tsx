@@ -144,19 +144,19 @@ export const ConfigPhase = () => {
         transition={{ duration: 0.5 }}
       >
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{t.configTitle}</h1>
-          <p className="text-muted-foreground">{t.configSubtitle}</p>
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t.configTitle}</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">{t.configSubtitle}</p>
         </div>
-        
-        <div className="space-y-8">
+
+        <div className="space-y-5 sm:space-y-8">
           {/* Language selection */}
-          <div className="glass-panel p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="glass-panel p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <Globe className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">{t.language}</h2>
+              <h2 className="font-semibold text-sm sm:text-base">{t.language}</h2>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               {languages.map((lang) => (
                 <button
                   key={lang.id}
@@ -176,7 +176,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Domain selection */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.domain}</h2>
@@ -202,7 +202,7 @@ export const ConfigPhase = () => {
           
           {/* Academic level and citation style */}
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="glass-panel p-6">
+            <div className="glass-panel p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <GraduationCap className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.level}</h2>
@@ -228,7 +228,7 @@ export const ConfigPhase = () => {
               </div>
             </div>
             
-            <div className="glass-panel p-6">
+            <div className="glass-panel p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Quote className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.citationStyle}</h2>
@@ -259,7 +259,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Writing style */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Layout className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.writingStyle}</h2>
@@ -289,7 +289,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Humanization toggle */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Wand2 className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">
@@ -334,7 +334,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Main idea input */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.mainIdea}</h2>
@@ -373,7 +373,7 @@ export const ConfigPhase = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="glass-panel p-6"
+              className="glass-panel p-4 sm:p-6"
             >
               <h2 className="font-semibold mb-4">{t.suggestedTitles}</h2>
               <div className="space-y-2">
@@ -417,7 +417,7 @@ export const ConfigPhase = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="glass-panel p-6 border-2 border-primary/30"
+              className="glass-panel p-4 sm:p-6 border-2 border-primary/30"
             >
               <div className="flex items-center gap-2 mb-4">
                 <Edit3 className="w-5 h-5 text-primary" />
@@ -441,7 +441,7 @@ export const ConfigPhase = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass-panel p-6 border-2 border-primary/20"
+            className="glass-panel p-4 sm:p-6 border-2 border-primary/20"
           >
             <div className="flex items-center gap-2 mb-4">
               <CreditCard className="w-5 h-5 text-primary" />

@@ -24,9 +24,9 @@ const Landing = () => {
       <Navbar />
       <main>
         <Hero />
-        <Features />
-        <SampleArticles />
         <ProofResults />
+        <SampleArticles />
+        <Features />
         <Templates />
         <CTA />
       </main>

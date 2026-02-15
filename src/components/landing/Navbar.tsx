@@ -54,13 +54,10 @@ export const Navbar = () => {
           
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-8">
-            <Link to="/templates" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
+            <Link to="/samples" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
               {t.templates}
             </Link>
-            <Link to="/pricing" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
-              {t.pricing}
-            </Link>
-            <Link to="/docs" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
+            <Link to="/about" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
               {t.docs}
             </Link>
           </div>
@@ -157,22 +154,15 @@ export const Navbar = () => {
                 ))}
               </div>
               
-              <Link 
-                to="/templates" 
+              <Link
+                to="/samples"
                 className="px-4 py-2 rounded-lg hover:bg-secondary transition-colors"
                 onClick={() => setIsOpen(false)}
               >
                 {t.templates}
               </Link>
-              <Link 
-                to="/pricing" 
-                className="px-4 py-2 rounded-lg hover:bg-secondary transition-colors"
-                onClick={() => setIsOpen(false)}
-              >
-                {t.pricing}
-              </Link>
-              <Link 
-                to="/docs" 
+              <Link
+                to="/about"
                 className="px-4 py-2 rounded-lg hover:bg-secondary transition-colors"
                 onClick={() => setIsOpen(false)}
               >

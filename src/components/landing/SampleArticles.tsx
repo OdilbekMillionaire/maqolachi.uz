@@ -1,5 +1,7 @@
 import { motion } from "framer-motion";
-import { FileText, ShieldCheck, BookOpen } from "lucide-react";
+import { FileText, ShieldCheck, BookOpen, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 
 const sampleArticles = [
   {
@@ -32,105 +34,100 @@ const sampleArticles = [
     domain: "Tarix", color: "from-amber-500 to-orange-600",
     author: "Mirzayev O.N.", words: 4900, turnitin: 10, aiScore: 3,
   },
-  {
-    title: "Xalqaro investitsiya huquqida arbitraj mexanizmlari: O'zbekiston tajribasi",
-    domain: "Huquq", color: "from-blue-500 to-indigo-600",
-    author: "Sultanov B.A.", words: 5300, turnitin: 14, aiScore: 5,
-  },
-  {
-    title: "Inflyatsiyaning uy xo'jaliklarining xarid qobiliyatiga ta'siri (2020-2024)",
-    domain: "Iqtisodiyot", color: "from-emerald-500 to-teal-600",
-    author: "Hasanova L.R.", words: 4700, turnitin: 7, aiScore: 4,
-  },
-  {
-    title: "Kiberxavfsizlik: zamonaviy tahdidlar va himoya strategiyalari",
-    domain: "IT va AI", color: "from-violet-500 to-purple-600",
-    author: "Yusupov F.M.", words: 5600, turnitin: 11, aiScore: 3,
-  },
-  {
-    title: "Ijtimoiy tarmoqlarning yoshlar ong-tafakkuriga psixologik ta'siri",
-    domain: "Sotsiologiya", color: "from-pink-500 to-rose-600",
-    author: "Ergasheva N.S.", words: 4500, turnitin: 9, aiScore: 2,
-  },
 ];
 
 export const SampleArticles = () => {
   return (
-    <section className="py-24 relative">
+    <section className="py-16 sm:py-24 relative">
       <div className="absolute inset-0 bg-gradient-to-b from-background via-card/20 to-background" />
 
-      <div className="container mx-auto px-6 relative z-10">
+      <div className="container mx-auto px-4 sm:px-6 relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center mb-16"
+          className="text-center mb-10 sm:mb-16"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary mb-6">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary mb-4 sm:mb-6">
             <BookOpen className="w-4 h-4" />
             <span className="text-sm font-medium">Namuna maqolalar</span>
           </div>
-          <h2 className="text-4xl md:text-5xl font-bold mb-6">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 sm:mb-6">
             Platformamizda yaratilgan
             <br />
             <span className="text-gradient">real maqolalar</span>
           </h2>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+          <p className="text-base sm:text-xl text-muted-foreground max-w-2xl mx-auto">
             Barcha maqolalar Turnitin va AI detektorlardan muvaffaqiyatli o'tgan
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           {sampleArticles.map((article, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.05 }}
-              className="glass-panel p-5 hover:border-primary/30 transition-all group"
-            >
-              <div className="flex items-start gap-4">
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${article.color} flex items-center justify-center flex-shrink-0`}>
-                  <FileText className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-serif font-semibold text-foreground leading-snug mb-2 line-clamp-2">
-                    {article.title}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>{article.author}</span>
-                    <span>{article.words.toLocaleString()} so'z</span>
-                    <span className="px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
-                      {article.domain}
-                    </span>
+            <Link to="/samples" key={index}>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: index * 0.05 }}
+                className="glass-panel p-4 sm:p-5 hover:border-primary/30 transition-all group cursor-pointer"
+              >
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${article.color} flex items-center justify-center flex-shrink-0`}>
+                    <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-serif font-semibold text-foreground leading-snug mb-2 line-clamp-2 text-sm sm:text-base group-hover:text-primary transition-colors">
+                      {article.title}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>{article.author}</span>
+                      <span>{article.words.toLocaleString()} so'z</span>
+                      <span className="px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
+                        {article.domain}
+                      </span>
+                    </div>
 
-                  {/* Turnitin & AI scores */}
-                  <div className="flex items-center gap-4 mt-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 h-1.5 rounded-full bg-secondary overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-emerald-500"
-                          style={{ width: `${Math.min(article.turnitin * 3, 100)}%` }}
-                        />
+                    <div className="flex items-center gap-3 sm:gap-4 mt-3">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <div className="w-16 sm:w-20 h-1.5 rounded-full bg-secondary overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-emerald-500"
+                            style={{ width: `${Math.min(article.turnitin * 3, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                          Turnitin {article.turnitin}%
+                        </span>
                       </div>
-                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                        Turnitin {article.turnitin}%
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                        AI: {article.aiScore}%
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-500" />
+                        <span className="text-[10px] sm:text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                          AI: {article.aiScore}%
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
+            </Link>
           ))}
         </div>
+
+        {/* View all button */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          className="text-center mt-8"
+        >
+          <Link to="/samples">
+            <Button variant="outline" size="lg" className="group gap-2">
+              Barcha maqolalarni ko'rish (20+)
+              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </Button>
+          </Link>
+        </motion.div>
       </div>
     </section>
   );

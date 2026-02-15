@@ -31,7 +31,7 @@ export const Hero = () => {
         />
       </div>
       
-      <div className="relative z-10 container mx-auto px-6 py-24 text-center">
+      <div className="relative z-10 container mx-auto px-4 sm:px-6 py-16 sm:py-24 text-center">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -49,7 +49,7 @@ export const Hero = () => {
           </motion.div>
           
           {/* Main heading */}
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 text-balance">
+          <h1 className="text-3xl sm:text-5xl md:text-7xl font-bold tracking-tight mb-4 sm:mb-6 text-balance">
             <span className="text-foreground">Ilmiy maqolalaringizni</span>
             <br />
             <span className="text-gradient">professional darajada</span>
@@ -62,7 +62,7 @@ export const Hero = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.6 }}
-            className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto mb-12 text-balance"
+            className="text-base sm:text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto mb-8 sm:mb-12 text-balance"
           >
             MAQOLACHI - akademik maqola yozish jarayonini soddalashtiruvchi 
             zamonaviy AI-yordamchi platforma
@@ -82,10 +82,12 @@ export const Hero = () => {
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Button>
             </Link>
-            <Button variant="hero-outline" size="xl">
-              <Zap className="w-5 h-5" />
-              Demo ko'rish
-            </Button>
+            <Link to="/samples">
+              <Button variant="hero-outline" size="xl">
+                <Zap className="w-5 h-5" />
+                Demo ko'rish
+              </Button>
+            </Link>
           </motion.div>
         </motion.div>
         
@@ -94,7 +96,7 @@ export const Hero = () => {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.8 }}
-          className="mt-24 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto"
+          className="mt-12 sm:mt-24 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-4xl mx-auto"
         >
           {[
             {
@@ -104,7 +106,7 @@ export const Hero = () => {
             },
             {
               icon: "🎯",
-              title: "10+ shablon",
+              title: "1000+ shablon",
               description: "IMRAD, Huquq, Iqtisod va boshqalar",
             },
             {
