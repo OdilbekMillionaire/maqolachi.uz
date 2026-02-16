@@ -121,6 +121,33 @@ export const translations = {
     exportSuccess: "Maqola muvaffaqiyatli yuklab olindi!",
     exportError: "Eksport qilishda xatolik yuz berdi",
     
+    // Variants
+    variantConcise: "Qisqaroq",
+    variantTechnical: "Texnik",
+    variantCounterargument: "Qarshi dalillar",
+    variantExamples: "Ko'proq misollar",
+    variantDeeper: "Chuqurroq tahlil",
+
+    // Batch generation
+    generateAll: "Hammasini generatsiya qilish",
+    generatingAll: "Barcha bo'limlar generatsiya qilinmoqda...",
+    batchComplete: "Barcha bo'limlar muvaffaqiyatli generatsiya qilindi!",
+    batchProgress: "{current}/{total} bo'lim tayyor",
+
+    // Preview
+    previewTitle: "Maqola ko'rinishi",
+    closePreview: "Yopish",
+
+    // Source metadata
+    verifiedSource: "Tasdiqlangan manba",
+    unverifiedSource: "Tasdiqlanmagan",
+    sourcesFound: "ta ilmiy manba topildi",
+    doiVerified: "DOI bilan tasdiqlangan",
+
+    // Humanization
+    humanizationLabel: "Humanizatsiya",
+    humanizationDesc: "AI detektorlari aniqlay olmaydigan matn",
+
     // Default sections
     sectionIntro: "Kirish",
     sectionLitReview: "Adabiyotlar sharhi",
@@ -251,6 +278,33 @@ export const translations = {
     exportSuccess: "Article downloaded successfully!",
     exportError: "Export error occurred",
     
+    // Variants
+    variantConcise: "Concise",
+    variantTechnical: "Technical",
+    variantCounterargument: "Counterarguments",
+    variantExamples: "More examples",
+    variantDeeper: "Deeper analysis",
+
+    // Batch generation
+    generateAll: "Generate All",
+    generatingAll: "Generating all sections...",
+    batchComplete: "All sections generated successfully!",
+    batchProgress: "{current}/{total} sections done",
+
+    // Preview
+    previewTitle: "Article Preview",
+    closePreview: "Close",
+
+    // Source metadata
+    verifiedSource: "Verified source",
+    unverifiedSource: "Unverified",
+    sourcesFound: "academic sources found",
+    doiVerified: "DOI verified",
+
+    // Humanization
+    humanizationLabel: "Humanization",
+    humanizationDesc: "Undetectable by AI detectors",
+
     // Default sections
     sectionIntro: "Introduction",
     sectionLitReview: "Literature Review",
@@ -381,6 +435,33 @@ export const translations = {
     exportSuccess: "Статья успешно скачана!",
     exportError: "Ошибка экспорта",
     
+    // Variants
+    variantConcise: "Кратко",
+    variantTechnical: "Технически",
+    variantCounterargument: "Контраргументы",
+    variantExamples: "Больше примеров",
+    variantDeeper: "Глубже анализ",
+
+    // Batch generation
+    generateAll: "Сгенерировать все",
+    generatingAll: "Генерация всех разделов...",
+    batchComplete: "Все разделы успешно сгенерированы!",
+    batchProgress: "{current}/{total} разделов готово",
+
+    // Preview
+    previewTitle: "Предпросмотр статьи",
+    closePreview: "Закрыть",
+
+    // Source metadata
+    verifiedSource: "Подтвержденный источник",
+    unverifiedSource: "Неподтвержденный",
+    sourcesFound: "научных источников найдено",
+    doiVerified: "Подтверждено DOI",
+
+    // Humanization
+    humanizationLabel: "Гуманизация",
+    humanizationDesc: "Не обнаруживается детекторами ИИ",
+
     // Default sections
     sectionIntro: "Введение",
     sectionLitReview: "Обзор литературы",

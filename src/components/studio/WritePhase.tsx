@@ -1,18 +1,19 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useMemo } from "react";
-import { 
-  Sparkles, 
-  RefreshCw, 
-  Check, 
-  Circle, 
-  Edit3,
+import { useState, useRef } from "react";
+import {
+  Sparkles,
+  RefreshCw,
   ChevronDown,
   ChevronUp,
   ArrowLeft,
   FileText,
   Loader2,
-  MoreHorizontal,
-  Download
+  Download,
+  Play,
+  Wand2,
+  CheckCircle2,
+  Shield,
+  ShieldCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus, CitationReference } from "@/store/projectStore";
@@ -22,6 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { getTranslation, Language } from "@/lib/translations";
 import { exportToDoc, countWords } from "@/lib/docExport";
+import { ArticlePreview } from "./ArticlePreview";
 
 const getStatusBadge = (status: SectionStatus, t: ReturnType<typeof getTranslation>) => {
   const statusMap: Record<SectionStatus, string> = {
@@ -33,67 +35,68 @@ const getStatusBadge = (status: SectionStatus, t: ReturnType<typeof getTranslati
   return { label: statusMap[status], class: `status-${status.toLowerCase()}` };
 };
 
-// Helper to check if section is conclusion
 const isConclusionSection = (sectionName: string): boolean => {
   const conclusionTerms = ['conclusion', 'xulosa', 'заключение', 'yakun', 'итог'];
   return conclusionTerms.some(term => sectionName.toLowerCase().includes(term));
 };
 
-// Helper to check if section is references
 const isReferencesSection = (sectionName: string): boolean => {
   const referenceTerms = ['reference', 'adabiyot', 'литература', 'manba', 'источник', 'bibliography'];
   return referenceTerms.some(term => sectionName.toLowerCase().includes(term));
 };
 
 export const WritePhase = () => {
-  const { 
-    currentProject, 
-    setPhase, 
-    updateSection, 
-    isGenerating, 
-    setIsGenerating, 
+  const {
+    currentProject,
+    setPhase,
+    updateSection,
+    isGenerating,
+    setIsGenerating,
     setGenerationProgress,
     addCitations,
-    getNextCitationNumber 
+    getNextCitationNumber
   } = useProjectStore();
   const { humanizeContent } = useSettingsStore();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  
+  const [showPreview, setShowPreview] = useState(false);
+  const [showVariants, setShowVariants] = useState<string | null>(null);
+  const [isBatchGenerating, setIsBatchGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const batchCancelRef = useRef(false);
+
   const sections = currentProject?.sections || [];
   const title = currentProject?.title || "";
   const lang = (currentProject?.config?.language || 'uz') as Language;
   const t = getTranslation(lang);
   const storedCitations = currentProject?.citations || [];
-  
+
   const handleGenerate = async (sectionId: string, regenMode?: string) => {
     setGeneratingSectionId(sectionId);
     setIsGenerating(true);
     setGenerationProgress(t.progressContext);
-    
+    setShowVariants(null);
+
     const section = sections.find(s => s.id === sectionId);
     const sectionIndex = sections.findIndex(s => s.id === sectionId);
-    
-    // Build prior summaries from completed sections
+
     const priorSummaries = sections
       .slice(0, sectionIndex)
       .filter(s => s.summary)
       .map(s => ({ name: s.name, summary: s.summary }));
-    
-    // Calculate target word count for this section
+
     const totalSections = sections.filter(s => !isReferencesSection(s.name)).length;
     const targetTotalWords = 5000;
     const targetSectionWords = Math.floor(targetTotalWords / totalSections);
-    
-    // Get starting citation number from stored citations
+
     const startingCitationNumber = getNextCitationNumber();
     const isConclusion = isConclusionSection(section?.name || '');
     const isReferences = isReferencesSection(section?.name || '');
-    
+
     try {
       setGenerationProgress(t.progressGenerating);
-      
+
       const requestBody: any = {
         type: isReferences ? 'references' : 'section',
         sectionName: section?.name,
@@ -108,27 +111,26 @@ export const WritePhase = () => {
         startingCitationNumber,
         isConclusion,
         isReferences,
-        storedCitations: storedCitations, // Pass stored citations for references section
+        storedCitations: storedCitations,
         humanize: humanizeContent
       };
-      
+
       const { data, error } = await supabase.functions.invoke('generate-content', {
         body: requestBody
       });
-      
+
       if (error) throw error;
-      
+
       setGenerationProgress(t.progressPolishing);
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       if (data?.content) {
-        updateSection(sectionId, { 
-          content: data.content, 
+        updateSection(sectionId, {
+          content: data.content,
           status: "GENERATED",
           summary: data.summary || data.content.substring(0, 200) + '...'
         });
-        
-        // Store citations from this section (if any)
+
         if (data.citations && data.citations.length > 0) {
           const citationsWithSectionId: CitationReference[] = data.citations.map((c: any) => ({
             number: c.number,
@@ -137,7 +139,7 @@ export const WritePhase = () => {
           }));
           addCitations(citationsWithSectionId);
         }
-        
+
         toast.success(t.sectionGenerated);
       } else {
         throw new Error('Invalid response');
@@ -168,7 +170,55 @@ export const WritePhase = () => {
       setExpandedSection(sectionId);
     }
   };
-  
+
+  // Batch generate all sections sequentially
+  const handleBatchGenerate = async () => {
+    const generableSections = sections.filter(
+      s => s.status === 'EMPTY' && !isReferencesSection(s.name)
+    );
+
+    if (generableSections.length === 0) {
+      toast.info(lang === 'uz' ? "Barcha bo'limlar allaqachon generatsiya qilingan"
+        : lang === 'ru' ? 'Все разделы уже сгенерированы'
+        : 'All sections already generated');
+      return;
+    }
+
+    setIsBatchGenerating(true);
+    batchCancelRef.current = false;
+    setBatchProgress({ current: 0, total: generableSections.length });
+
+    for (let i = 0; i < generableSections.length; i++) {
+      if (batchCancelRef.current) break;
+
+      setBatchProgress({ current: i + 1, total: generableSections.length });
+      await handleGenerate(generableSections[i].id);
+
+      // Small delay between generations to avoid rate limits
+      if (i < generableSections.length - 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    // Generate references at the end
+    if (!batchCancelRef.current) {
+      const refsSection = sections.find(s => isReferencesSection(s.name));
+      if (refsSection) {
+        await handleGenerate(refsSection.id);
+      }
+    }
+
+    setIsBatchGenerating(false);
+    if (!batchCancelRef.current) {
+      toast.success(t.batchComplete);
+    }
+  };
+
+  const handleCancelBatch = () => {
+    batchCancelRef.current = true;
+    setIsBatchGenerating(false);
+  };
+
   const handleContentChange = (sectionId: string, content: string) => {
     const section = sections.find(s => s.id === sectionId);
     if (section?.status === "GENERATED") {
@@ -177,10 +227,10 @@ export const WritePhase = () => {
       updateSection(sectionId, { content });
     }
   };
-  
+
   const handleExport = async () => {
     if (!currentProject) return;
-    
+
     setIsExporting(true);
     try {
       await exportToDoc({
@@ -199,11 +249,20 @@ export const WritePhase = () => {
       setIsExporting(false);
     }
   };
-  
+
+  const variantOptions = [
+    { id: 'concise', label: t.variantConcise },
+    { id: 'technical', label: t.variantTechnical },
+    { id: 'counterargument', label: t.variantCounterargument },
+    { id: 'examples', label: t.variantExamples },
+    { id: 'deeper', label: t.variantDeeper },
+  ];
+
   const completedSections = sections.filter(s => s.status === "GENERATED" || s.status === "EDITED").length;
   const progress = (completedSections / sections.length) * 100;
   const totalWords = countWords(sections);
-  
+  const verifiedCitations = storedCitations.filter((c: any) => c.verified).length;
+
   return (
     <div className="max-w-4xl mx-auto">
       <motion.div
@@ -216,22 +275,62 @@ export const WritePhase = () => {
           <h1 className="text-3xl font-bold mb-2">{t.writeTitle}</h1>
           <p className="text-muted-foreground">{t.writeSubtitle}</p>
         </div>
-        
-        {/* Title and progress */}
+
+        {/* Title, progress, and actions */}
         <div className="glass-panel p-6 mb-8">
           <div className="flex items-start justify-between gap-4 mb-4">
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-2">{t.titleLabel}</p>
               <h2 className="text-xl font-serif text-foreground leading-relaxed">
                 {title}
               </h2>
             </div>
-            <Button variant="outline" size="sm" className="gap-2 flex-shrink-0">
-              <FileText className="w-4 h-4" />
-              {t.preview}
-            </Button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowPreview(true)}
+                disabled={completedSections === 0}
+              >
+                <FileText className="w-4 h-4" />
+                {t.preview}
+              </Button>
+              {/* Batch generate button */}
+              {!isBatchGenerating ? (
+                <Button
+                  variant="hero"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleBatchGenerate}
+                  disabled={isGenerating || completedSections === sections.length}
+                >
+                  <Play className="w-4 h-4" />
+                  {t.generateAll}
+                </Button>
+              ) : (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleCancelBatch}
+                >
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {batchProgress.current}/{batchProgress.total}
+                </Button>
+              )}
+            </div>
           </div>
-          
+
+          {/* Humanization indicator */}
+          {humanizeContent && (
+            <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
+              <Wand2 className="w-4 h-4 text-primary" />
+              <span className="text-xs text-primary font-medium">{t.humanizationLabel}:</span>
+              <span className="text-xs text-muted-foreground">{t.humanizationDesc}</span>
+            </div>
+          )}
+
           {/* Progress bar */}
           <div>
             <div className="flex items-center justify-between text-sm mb-2">
@@ -246,8 +345,18 @@ export const WritePhase = () => {
                   {totalWords.toLocaleString()} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
                 </span>
                 <span className="text-muted-foreground">|</span>
-                <span className="text-muted-foreground text-xs">
-                  {storedCitations.length} {lang === 'uz' ? "manba" : lang === 'ru' ? "источников" : "sources"}
+                <span className="flex items-center gap-1 text-xs">
+                  {verifiedCitations > 0 ? (
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+                  )}
+                  <span className="text-muted-foreground">
+                    {storedCitations.length} {lang === 'uz' ? "manba" : lang === 'ru' ? "источников" : "sources"}
+                    {verifiedCitations > 0 && (
+                      <span className="text-emerald-400 ml-1">({verifiedCitations} DOI)</span>
+                    )}
+                  </span>
                 </span>
               </div>
             </div>
@@ -261,7 +370,7 @@ export const WritePhase = () => {
             </div>
           </div>
         </div>
-        
+
         {/* Sections */}
         <div className="space-y-4 mb-8">
           {sections.map((section, index) => {
@@ -269,7 +378,8 @@ export const WritePhase = () => {
             const isGeneratingThis = generatingSectionId === section.id;
             const statusBadge = getStatusBadge(section.status, t);
             const isRefs = isReferencesSection(section.name);
-            
+            const isVariantsOpen = showVariants === section.id;
+
             return (
               <motion.div
                 key={section.id}
@@ -289,7 +399,11 @@ export const WritePhase = () => {
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-medium text-primary">{index + 1}</span>
+                      {section.status === 'GENERATED' || section.status === 'EDITED' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <span className="text-sm font-medium text-primary">{index + 1}</span>
+                      )}
                     </div>
                     <div className="text-left">
                       <h3 className="font-medium text-foreground">{section.name}</h3>
@@ -311,7 +425,7 @@ export const WritePhase = () => {
                     <ChevronDown className="w-5 h-5 text-muted-foreground" />
                   )}
                 </button>
-                
+
                 {/* Expanded content */}
                 <AnimatePresence>
                   {isExpanded && (
@@ -324,7 +438,7 @@ export const WritePhase = () => {
                     >
                       <div className="p-4 space-y-4">
                         {/* Action buttons */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Button
                             onClick={() => handleGenerate(section.id)}
                             disabled={isGenerating || (isRefs && storedCitations.length === 0)}
@@ -342,25 +456,59 @@ export const WritePhase = () => {
                               </>
                             )}
                           </Button>
+
+                          {/* Variants dropdown */}
                           {section.content && !isRefs && (
-                            <Button variant="outline" className="gap-2">
-                              <MoreHorizontal className="w-4 h-4" />
-                              {t.variants}
-                            </Button>
+                            <div className="relative">
+                              <Button
+                                variant="outline"
+                                className="gap-2"
+                                onClick={() => setShowVariants(isVariantsOpen ? null : section.id)}
+                                disabled={isGenerating}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                {t.variants}
+                                <ChevronDown className="w-3 h-3" />
+                              </Button>
+
+                              <AnimatePresence>
+                                {isVariantsOpen && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: -8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-xl shadow-lg p-1 min-w-[200px]"
+                                  >
+                                    {variantOptions.map(variant => (
+                                      <button
+                                        key={variant.id}
+                                        onClick={() => {
+                                          setShowVariants(null);
+                                          handleGenerate(section.id, variant.id);
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-secondary/50 transition-colors text-foreground"
+                                      >
+                                        {variant.label}
+                                      </button>
+                                    ))}
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
                           )}
                         </div>
-                        
+
                         {/* Info for references section */}
                         {isRefs && storedCitations.length === 0 && (
                           <div className="text-sm text-muted-foreground bg-secondary/30 rounded-lg p-3">
-                            {lang === 'uz' 
+                            {lang === 'uz'
                               ? "Avval boshqa bo'limlarni yarating. Manbalar avtomatik to'planadi."
                               : lang === 'ru'
                               ? "Сначала сгенерируйте другие разделы. Источники будут собраны автоматически."
                               : "Generate other sections first. References will be collected automatically."}
                           </div>
                         )}
-                        
+
                         {/* Content editor */}
                         <div>
                           <label className="text-sm text-muted-foreground mb-2 block">
@@ -373,7 +521,7 @@ export const WritePhase = () => {
                             className="w-full min-h-[300px] bg-secondary/30 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-y font-serif leading-relaxed"
                           />
                         </div>
-                        
+
                         {/* Section notes */}
                         <div>
                           <label className="text-sm text-muted-foreground mb-2 block">
@@ -395,7 +543,7 @@ export const WritePhase = () => {
             );
           })}
         </div>
-        
+
         {/* Navigation */}
         <div className="flex justify-between pt-4">
           <Button
@@ -407,9 +555,9 @@ export const WritePhase = () => {
             <ArrowLeft className="w-5 h-5" />
             {t.backToStructure}
           </Button>
-          <Button 
-            variant="hero" 
-            size="lg" 
+          <Button
+            variant="hero"
+            size="lg"
             className="gap-2"
             onClick={handleExport}
             disabled={isExporting || completedSections === 0}
@@ -428,6 +576,15 @@ export const WritePhase = () => {
           </Button>
         </div>
       </motion.div>
+
+      {/* Article Preview Modal */}
+      <ArticlePreview
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        title={title}
+        sections={sections}
+        language={lang}
+      />
     </div>
   );
 };

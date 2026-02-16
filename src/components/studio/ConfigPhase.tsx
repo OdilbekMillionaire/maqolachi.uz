@@ -1,25 +1,28 @@
 import { motion } from "framer-motion";
-import { useState } from "react";
-import { 
-  Globe, 
-  BookOpen, 
-  GraduationCap, 
-  Quote, 
-  Layout, 
+import { useState, useMemo } from "react";
+import {
+  Globe,
+  BookOpen,
+  GraduationCap,
+  Quote,
+  Layout,
   Sparkles,
   ArrowRight,
   Loader2,
   Check,
   Edit3,
-  Wand2
+  Wand2,
+  CreditCard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Language, Domain, AcademicLevel, CitationStyle, StyleMode } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePaymentStore } from "@/store/paymentStore";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { getTranslation } from "@/lib/translations";
+import { calculatePrice, formatPrice, type PricingFactors } from "@/lib/pricing";
 
 export const ConfigPhase = () => {
   const { currentProject, updateConfig, setGeneratedTitles, setTitle, setPhase, setGenerationProgress } = useProjectStore();
@@ -115,7 +118,24 @@ export const ConfigPhase = () => {
   };
   
   const canProceed = currentProject?.title && config?.mainIdea;
-  
+
+  const { setRequiredAmount } = usePaymentStore();
+
+  const priceBreakdown = useMemo(() => {
+    const factors: PricingFactors = {
+      academicLevel: config?.academicLevel || 'bachelor',
+      domain: config?.domain || 'other',
+      humanize: humanizeContent,
+      modelMode: config?.modelMode || 'fast',
+      styleMode: config?.styleMode || 'formal',
+      citationStyle: config?.citationStyle || 'apa',
+      sectionCount: currentProject?.sections?.length || 7,
+    };
+    const breakdown = calculatePrice(factors);
+    setRequiredAmount(breakdown.total);
+    return breakdown;
+  }, [config, humanizeContent, currentProject?.sections?.length]);
+
   return (
     <div className="max-w-4xl mx-auto">
       <motion.div
@@ -124,19 +144,19 @@ export const ConfigPhase = () => {
         transition={{ duration: 0.5 }}
       >
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{t.configTitle}</h1>
-          <p className="text-muted-foreground">{t.configSubtitle}</p>
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t.configTitle}</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">{t.configSubtitle}</p>
         </div>
-        
-        <div className="space-y-8">
+
+        <div className="space-y-5 sm:space-y-8">
           {/* Language selection */}
-          <div className="glass-panel p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="glass-panel p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <Globe className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">{t.language}</h2>
+              <h2 className="font-semibold text-sm sm:text-base">{t.language}</h2>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               {languages.map((lang) => (
                 <button
                   key={lang.id}
@@ -156,7 +176,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Domain selection */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.domain}</h2>
@@ -182,7 +202,7 @@ export const ConfigPhase = () => {
           
           {/* Academic level and citation style */}
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="glass-panel p-6">
+            <div className="glass-panel p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <GraduationCap className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.level}</h2>
@@ -208,7 +228,7 @@ export const ConfigPhase = () => {
               </div>
             </div>
             
-            <div className="glass-panel p-6">
+            <div className="glass-panel p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Quote className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.citationStyle}</h2>
@@ -239,7 +259,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Writing style */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Layout className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.writingStyle}</h2>
@@ -269,7 +289,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Humanization toggle */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Wand2 className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">
@@ -314,7 +334,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Main idea input */}
-          <div className="glass-panel p-6">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.mainIdea}</h2>
@@ -353,7 +373,7 @@ export const ConfigPhase = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="glass-panel p-6"
+              className="glass-panel p-4 sm:p-6"
             >
               <h2 className="font-semibold mb-4">{t.suggestedTitles}</h2>
               <div className="space-y-2">
@@ -397,7 +417,7 @@ export const ConfigPhase = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="glass-panel p-6 border-2 border-primary/30"
+              className="glass-panel p-4 sm:p-6 border-2 border-primary/30"
             >
               <div className="flex items-center gap-2 mb-4">
                 <Edit3 className="w-5 h-5 text-primary" />
@@ -417,6 +437,84 @@ export const ConfigPhase = () => {
             </motion.div>
           )}
           
+          {/* Live pricing calculator */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-panel p-4 sm:p-6 border-2 border-primary/20"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <CreditCard className="w-5 h-5 text-primary" />
+              <h2 className="font-semibold">
+                {lang === 'uz' ? "Narx kalkulyatori" : lang === 'ru' ? 'Калькулятор цен' : 'Price Calculator'}
+              </h2>
+            </div>
+
+            <div className="space-y-2 text-sm mb-4">
+              <div className="flex justify-between text-muted-foreground">
+                <span>{lang === 'uz' ? "Asosiy narx" : lang === 'ru' ? 'Базовая цена' : 'Base price'}</span>
+                <span>{formatPrice(priceBreakdown.base)}</span>
+              </div>
+              {priceBreakdown.levelAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Akademik daraja" : lang === 'ru' ? 'Акад. уровень' : 'Academic level'}</span>
+                  <span>+{formatPrice(priceBreakdown.levelAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.domainAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Soha murakkabligi" : lang === 'ru' ? 'Сложность области' : 'Domain'}</span>
+                  <span>+{formatPrice(priceBreakdown.domainAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.humanizeAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Humanizatsiya" : lang === 'ru' ? 'Гуманизация' : 'Humanization'}</span>
+                  <span>+{formatPrice(priceBreakdown.humanizeAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.qualityAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Sifatli rejim" : lang === 'ru' ? 'Режим качества' : 'Quality mode'}</span>
+                  <span>+{formatPrice(priceBreakdown.qualityAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.styleAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Yozish uslubi" : lang === 'ru' ? 'Стиль письма' : 'Writing style'}</span>
+                  <span>+{formatPrice(priceBreakdown.styleAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.citationAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Iqtibos formati" : lang === 'ru' ? 'Формат цитат' : 'Citation style'}</span>
+                  <span>+{formatPrice(priceBreakdown.citationAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.sectionsAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Qo'shimcha bo'limlar" : lang === 'ru' ? 'Доп. разделы' : 'Extra sections'}</span>
+                  <span>+{formatPrice(priceBreakdown.sectionsAddon)}</span>
+                </div>
+              )}
+              <div className="border-t border-border pt-3 mt-3 flex justify-between items-center">
+                <span className="font-semibold text-foreground text-base">
+                  {lang === 'uz' ? "Jami" : lang === 'ru' ? 'Итого' : 'Total'}
+                </span>
+                <span className="text-2xl font-bold text-primary">
+                  {formatPrice(priceBreakdown.total)}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {lang === 'uz'
+                ? "Yuqoridagi sozlamalarni o'zgartirsangiz, narx avtomatik yangilanadi"
+                : lang === 'ru'
+                ? 'Цена автоматически обновляется при изменении настроек'
+                : 'Price updates automatically as you change settings'}
+            </p>
+          </motion.div>
+
           {/* Next button */}
           <div className="flex justify-end pt-4">
             <Button

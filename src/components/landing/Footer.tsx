@@ -4,8 +4,8 @@ import { Link } from "react-router-dom";
 export const Footer = () => {
   return (
     <footer className="border-t border-border bg-card/30">
-      <div className="container mx-auto px-6 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+      <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8">
           {/* Brand */}
           <div className="md:col-span-2">
             <Link to="/" className="flex items-center gap-3 mb-4">
@@ -43,7 +43,7 @@ export const Footer = () => {
                 </Link>
               </li>
               <li>
-                <Link to="/templates" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                <Link to="/samples" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
                   Shablonlar
                 </Link>
               </li>
@@ -84,7 +84,7 @@ export const Footer = () => {
         
         <div className="border-t border-border mt-8 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-sm text-muted-foreground">
-            © 2024 MAQOLACHI. Barcha huquqlar himoyalangan.
+            © 2026 MAQOLACHI. Barcha huquqlar himoyalangan.
           </p>
           <p className="text-sm text-muted-foreground">
             O'zbekistonda ❤️ bilan yaratilgan

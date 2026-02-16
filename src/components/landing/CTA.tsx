@@ -56,9 +56,11 @@ export const CTA = () => {
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </Button>
               </Link>
-              <Button variant="hero-outline" size="xl">
-                Ko'proq ma'lumot
-              </Button>
+              <Link to="/about">
+                <Button variant="hero-outline" size="xl">
+                  Ko'proq ma'lumot
+                </Button>
+              </Link>
             </div>
             
             <p className="text-sm text-muted-foreground mt-8">

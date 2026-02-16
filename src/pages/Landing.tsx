@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { Navbar } from "@/components/landing/Navbar";
 import { Hero } from "@/components/landing/Hero";
 import { Features } from "@/components/landing/Features";
+import { SampleArticles } from "@/components/landing/SampleArticles";
+import { ProofResults } from "@/components/landing/ProofResults";
 import { Templates } from "@/components/landing/Templates";
 import { CTA } from "@/components/landing/CTA";
 import { Footer } from "@/components/landing/Footer";
@@ -10,18 +12,20 @@ import { useSettingsStore } from "@/store/settingsStore";
 
 const Landing = () => {
   const { theme } = useSettingsStore();
-  
+
   useEffect(() => {
     document.documentElement.classList.remove('dark', 'light');
     document.documentElement.classList.add(theme);
   }, [theme]);
-  
+
   return (
     <div className="min-h-screen bg-background">
       <WelcomeOverlay />
       <Navbar />
       <main>
         <Hero />
+        <ProofResults />
+        <SampleArticles />
         <Features />
         <Templates />
         <CTA />
