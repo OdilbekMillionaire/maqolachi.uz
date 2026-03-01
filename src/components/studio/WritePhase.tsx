@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles,
   RefreshCw,
@@ -16,7 +16,12 @@ import {
   ShieldCheck,
   MessageSquarePlus,
   ClipboardCopy,
-  Hash
+  Hash,
+  Undo2,
+  ChevronsUpDown,
+  BookOpen,
+  Timer,
+  Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus, CitationReference } from "@/store/projectStore";
@@ -48,6 +53,16 @@ const isReferencesSection = (sectionName: string): boolean => {
   return referenceTerms.some(term => sectionName.toLowerCase().includes(term));
 };
 
+// Status color for progress dots
+const getStatusColor = (status: SectionStatus) => {
+  switch (status) {
+    case 'GENERATED': return 'bg-emerald-500';
+    case 'EDITED': return 'bg-blue-500';
+    case 'DRAFT': return 'bg-amber-500';
+    case 'EMPTY': return 'bg-muted';
+  }
+};
+
 export const WritePhase = () => {
   const {
     currentProject,
@@ -68,8 +83,22 @@ export const WritePhase = () => {
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const batchCancelRef = useRef(false);
-  // sectionId -> user's instruction for targeted regeneration
   const [sectionInstructions, setSectionInstructions] = useState<Record<string, string>>({});
+
+  // NEW: Section undo history
+  const [sectionHistory, setSectionHistory] = useState<Record<string, string[]>>({});
+  // NEW: Auto-continue to next section
+  const [autoContinue, setAutoContinue] = useState(false);
+  // NEW: Collapse all / expand all state
+  const [allExpanded, setAllExpanded] = useState(false);
+  // NEW: Show mini TOC
+  const [showToc, setShowToc] = useState(false);
+  // NEW: Generation timer
+  const [genStartTime, setGenStartTime] = useState<number | null>(null);
+  const [genElapsed, setGenElapsed] = useState(0);
+
+  // Section refs for scrolling
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const sections = currentProject?.sections || [];
   const title = currentProject?.title || "";
@@ -77,13 +106,56 @@ export const WritePhase = () => {
   const t = getTranslation(lang);
   const storedCitations = currentProject?.citations || [];
 
+  // NEW: Generation timer
+  useEffect(() => {
+    if (!genStartTime) { setGenElapsed(0); return; }
+    const interval = setInterval(() => {
+      setGenElapsed(Math.floor((Date.now() - genStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [genStartTime]);
+
+  // NEW: Keyboard shortcut Ctrl+G to generate current expanded section
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'g') {
+        e.preventDefault();
+        if (expandedSection && !isGenerating) {
+          handleGenerate(expandedSection);
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [expandedSection, isGenerating]);
+
+  // NEW: Scroll to section when it starts generating
+  const scrollToSection = (sectionId: string) => {
+    const el = sectionRefs.current[sectionId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
   const handleGenerate = async (sectionId: string, regenMode?: string, userInstruction?: string) => {
+    // NEW: Save previous content for undo
+    const section = sections.find(s => s.id === sectionId);
+    if (section?.content) {
+      setSectionHistory(prev => ({
+        ...prev,
+        [sectionId]: [...(prev[sectionId] || []), section.content]
+      }));
+    }
+
     setGeneratingSectionId(sectionId);
     setIsGenerating(true);
     setGenerationProgress(t.progressContext);
     setShowVariants(null);
+    setGenStartTime(Date.now());
 
-    const section = sections.find(s => s.id === sectionId);
+    // Scroll to section
+    scrollToSection(sectionId);
+
     const sectionIndex = sections.findIndex(s => s.id === sectionId);
 
     const priorSummaries = sections
@@ -146,7 +218,20 @@ export const WritePhase = () => {
           addCitations(citationsWithSectionId);
         }
 
-        toast.success(t.sectionGenerated);
+        // NEW: Enhanced toast with word count
+        const wc = data.content.trim().split(/\s+/).length;
+        const citCount = data.citations?.length || 0;
+        toast.success(
+          `${t.sectionGenerated} (${wc} ${lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}${citCount > 0 ? `, ${citCount} ${lang === 'uz' ? "manba" : lang === 'ru' ? "ист." : "refs"}` : ''})`
+        );
+
+        // NEW: Auto-continue to next section
+        if (autoContinue && !isBatchGenerating) {
+          const nextSection = sections[sectionIndex + 1];
+          if (nextSection && nextSection.status === 'EMPTY' && !isReferencesSection(nextSection.name)) {
+            setTimeout(() => handleGenerate(nextSection.id), 1500);
+          }
+        }
       } else {
         throw new Error('Invalid response');
       }
@@ -174,7 +259,21 @@ export const WritePhase = () => {
       setIsGenerating(false);
       setGenerationProgress("");
       setExpandedSection(sectionId);
+      setGenStartTime(null);
     }
+  };
+
+  // NEW: Undo last generation for a section
+  const handleUndo = (sectionId: string) => {
+    const history = sectionHistory[sectionId];
+    if (!history || history.length === 0) return;
+    const previousContent = history[history.length - 1];
+    updateSection(sectionId, { content: previousContent, status: previousContent ? "EDITED" : "EMPTY" });
+    setSectionHistory(prev => ({
+      ...prev,
+      [sectionId]: history.slice(0, -1)
+    }));
+    toast.info(lang === 'uz' ? "Oldingi versiya qaytarildi" : lang === 'ru' ? "Предыдущая версия восстановлена" : "Previous version restored");
   };
 
   // Batch generate all sections sequentially
@@ -200,13 +299,11 @@ export const WritePhase = () => {
       setBatchProgress({ current: i + 1, total: generableSections.length });
       await handleGenerate(generableSections[i].id);
 
-      // Small delay between generations to avoid rate limits
       if (i < generableSections.length - 1) {
         await new Promise(r => setTimeout(r, 2000));
       }
     }
 
-    // Generate references at the end
     if (!batchCancelRef.current) {
       const refsSection = sections.find(s => isReferencesSection(s.name));
       if (refsSection) {
@@ -256,18 +353,17 @@ export const WritePhase = () => {
     }
   };
 
-  const variantOptions = [
-    { id: 'concise', label: t.variantConcise },
-    { id: 'technical', label: t.variantTechnical },
-    { id: 'counterargument', label: t.variantCounterargument },
-    { id: 'examples', label: t.variantExamples },
-    { id: 'deeper', label: t.variantDeeper },
-  ];
-
-  const completedSections = sections.filter(s => s.status === "GENERATED" || s.status === "EDITED").length;
-  const progress = (completedSections / sections.length) * 100;
-  const totalWords = countWords(sections);
-  const verifiedCitations = storedCitations.filter((c: any) => c.verified).length;
+  // NEW: Toggle collapse all / expand all
+  const handleToggleAll = () => {
+    if (allExpanded) {
+      setExpandedSection(null);
+      setAllExpanded(false);
+    } else {
+      // Expand first section (can't expand all simultaneously with single state, so just mark as expanded)
+      setAllExpanded(true);
+      setExpandedSection(sections[0]?.id || null);
+    }
+  };
 
   // Word count for a single section
   const getSectionWordCount = (content: string) => {
@@ -292,6 +388,28 @@ export const WritePhase = () => {
     toast.success(lang === 'uz' ? "Butun maqola nusxalandi!" : lang === 'ru' ? "Вся статья скопирована!" : "Full article copied!");
   };
 
+  // Get citations count for a section
+  const getSectionCitations = (sectionId: string) => {
+    return storedCitations.filter(c => c.sectionId === sectionId).length;
+  };
+
+  const variantOptions = [
+    { id: 'concise', label: t.variantConcise },
+    { id: 'technical', label: t.variantTechnical },
+    { id: 'counterargument', label: t.variantCounterargument },
+    { id: 'examples', label: t.variantExamples },
+    { id: 'deeper', label: t.variantDeeper },
+  ];
+
+  const completedSections = sections.filter(s => s.status === "GENERATED" || s.status === "EDITED").length;
+  const progress = (completedSections / sections.length) * 100;
+  const totalWords = countWords(sections);
+  const verifiedCitations = storedCitations.filter((c: any) => c.verified).length;
+
+  // Estimated time remaining (rough: ~30s per section)
+  const remainingSections = sections.filter(s => s.status === 'EMPTY' && !isReferencesSection(s.name)).length;
+  const estimatedMinutes = Math.ceil((remainingSections * 30) / 60);
+
   return (
     <div className="max-w-4xl mx-auto">
       <motion.div
@@ -302,11 +420,16 @@ export const WritePhase = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">{t.writeTitle}</h1>
-          <p className="text-muted-foreground">{t.writeSubtitle}</p>
+          <p className="text-muted-foreground">
+            {t.writeSubtitle}
+            <span className="text-xs ml-2 text-muted-foreground/60">
+              (Ctrl+G {lang === 'uz' ? "— generatsiya" : lang === 'ru' ? "— генерация" : "— generate"})
+            </span>
+          </p>
         </div>
 
         {/* Title, progress, and actions */}
-        <div className="glass-panel p-6 mb-8">
+        <div className="glass-panel p-6 mb-6">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <p className="text-xs text-muted-foreground mb-2">{t.titleLabel}</p>
@@ -314,47 +437,22 @@ export const WritePhase = () => {
                 {title}
               </h2>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Copy full article */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={handleCopyAll}
-                disabled={completedSections === 0}
-              >
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+              <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyAll} disabled={completedSections === 0}>
                 <ClipboardCopy className="w-4 h-4" />
-                {lang === 'uz' ? "Nusxalash" : lang === 'ru' ? "Копировать" : "Copy"}
+                <span className="hidden sm:inline">{lang === 'uz' ? "Nusxalash" : lang === 'ru' ? "Копировать" : "Copy"}</span>
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => setShowPreview(true)}
-                disabled={completedSections === 0}
-              >
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowPreview(true)} disabled={completedSections === 0}>
                 <FileText className="w-4 h-4" />
-                {t.preview}
+                <span className="hidden sm:inline">{t.preview}</span>
               </Button>
-              {/* Batch generate button */}
               {!isBatchGenerating ? (
-                <Button
-                  variant="hero"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleBatchGenerate}
-                  disabled={isGenerating || completedSections === sections.length}
-                >
+                <Button variant="hero" size="sm" className="gap-2" onClick={handleBatchGenerate} disabled={isGenerating || completedSections === sections.length}>
                   <Play className="w-4 h-4" />
                   {t.generateAll}
                 </Button>
               ) : (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleCancelBatch}
-                >
+                <Button variant="destructive" size="sm" className="gap-2" onClick={handleCancelBatch}>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   {batchProgress.current}/{batchProgress.total}
                 </Button>
@@ -371,75 +469,185 @@ export const WritePhase = () => {
             </div>
           )}
 
-          {/* Progress bar */}
+          {/* Progress bar + stats */}
           <div>
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-muted-foreground">{t.progress}</span>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-foreground font-medium">{completedSections}/{sections.length} {t.sectionsCount}</span>
                 <span className="text-muted-foreground">|</span>
-                <span className={cn(
-                  "font-medium",
-                  totalWords >= 4000 && totalWords <= 6000 ? "text-emerald-400" : "text-amber-400"
-                )}>
+                <span className={cn("font-medium", totalWords >= 4000 && totalWords <= 6000 ? "text-emerald-400" : "text-amber-400")}>
                   {totalWords.toLocaleString()} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
                 </span>
                 <span className="text-muted-foreground">|</span>
                 <span className="flex items-center gap-1 text-xs">
-                  {verifiedCitations > 0 ? (
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <Shield className="w-3.5 h-3.5 text-muted-foreground" />
-                  )}
+                  {verifiedCitations > 0 ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> : <Shield className="w-3.5 h-3.5 text-muted-foreground" />}
                   <span className="text-muted-foreground">
-                    {storedCitations.length} {lang === 'uz' ? "manba" : lang === 'ru' ? "источников" : "sources"}
-                    {verifiedCitations > 0 && (
-                      <span className="text-emerald-400 ml-1">({verifiedCitations} DOI)</span>
-                    )}
+                    {storedCitations.length} {lang === 'uz' ? "manba" : lang === 'ru' ? "ист." : "refs"}
+                    {verifiedCitations > 0 && <span className="text-emerald-400 ml-1">({verifiedCitations} DOI)</span>}
                   </span>
                 </span>
+                {/* Estimated time */}
+                {remainingSections > 0 && (
+                  <>
+                    <span className="text-muted-foreground">|</span>
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Timer className="w-3 h-3" />
+                      ~{estimatedMinutes} {lang === 'uz' ? "min" : lang === 'ru' ? "мин" : "min"}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
             <div className="h-2 bg-secondary rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-primary rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.5 }}
-              />
+              <motion.div className="h-full bg-primary rounded-full" initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: 0.5 }} />
             </div>
           </div>
+
+          {/* NEW: Section progress dots */}
+          <div className="flex items-center gap-1.5 mt-3">
+            {sections.map((s, i) => (
+              <button
+                key={s.id}
+                onClick={() => { setExpandedSection(s.id); scrollToSection(s.id); }}
+                className="group relative"
+                title={s.name}
+              >
+                <div className={cn(
+                  "w-3 h-3 rounded-full transition-all",
+                  getStatusColor(s.status),
+                  generatingSectionId === s.id && "animate-pulse ring-2 ring-primary",
+                  expandedSection === s.id && "ring-2 ring-foreground/30"
+                )} />
+              </button>
+            ))}
+            <span className="text-[10px] text-muted-foreground ml-2">
+              {lang === 'uz' ? "Har bir nuqta — bo'lim" : lang === 'ru' ? "Каждая точка — раздел" : "Each dot = section"}
+            </span>
+          </div>
         </div>
+
+        {/* NEW: Quick controls bar */}
+        <div className="flex items-center justify-between mb-4 px-1">
+          <div className="flex items-center gap-3">
+            {/* Auto-continue toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={autoContinue}
+                onChange={(e) => setAutoContinue(e.target.checked)}
+                className="w-4 h-4 rounded border-border accent-primary"
+              />
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Zap className="w-3 h-3" />
+                {lang === 'uz' ? "Avtomatik davom etish" : lang === 'ru' ? "Авто-продолжение" : "Auto-continue"}
+              </span>
+            </label>
+
+            {/* TOC toggle */}
+            <button
+              onClick={() => setShowToc(!showToc)}
+              className={cn("text-xs flex items-center gap-1 px-2 py-1 rounded-lg transition-colors", showToc ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}
+            >
+              <BookOpen className="w-3 h-3" />
+              {lang === 'uz' ? "Mundarija" : lang === 'ru' ? "Оглавление" : "TOC"}
+            </button>
+          </div>
+
+          {/* Generation timer */}
+          {genStartTime && (
+            <div className="flex items-center gap-2 text-xs text-primary animate-pulse">
+              <Timer className="w-3 h-3" />
+              {genElapsed}s
+            </div>
+          )}
+
+          {/* Collapse/Expand all */}
+          <button onClick={handleToggleAll} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+            <ChevronsUpDown className="w-3.5 h-3.5" />
+            {allExpanded
+              ? (lang === 'uz' ? "Barchasini yopish" : lang === 'ru' ? "Свернуть все" : "Collapse all")
+              : (lang === 'uz' ? "Barchasini ochish" : lang === 'ru' ? "Развернуть все" : "Expand all")
+            }
+          </button>
+        </div>
+
+        {/* NEW: Mini TOC sidebar */}
+        <AnimatePresence>
+          {showToc && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="glass-panel p-4 mb-4"
+            >
+              <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                {lang === 'uz' ? "Mundarija" : lang === 'ru' ? "Оглавление" : "Table of Contents"}
+              </h3>
+              <div className="space-y-1">
+                {sections.map((s, i) => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setExpandedSection(s.id); scrollToSection(s.id); setShowToc(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center justify-between",
+                      expandedSection === s.id ? "bg-primary/10 text-primary" : "hover:bg-secondary/50 text-foreground"
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className={cn("w-2 h-2 rounded-full flex-shrink-0", getStatusColor(s.status))} />
+                      <span className="truncate">{s.name}</span>
+                    </span>
+                    {s.content && (
+                      <span className="text-[10px] text-muted-foreground ml-2 flex-shrink-0">
+                        {getSectionWordCount(s.content)}w
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Sections */}
         <div className="space-y-4 mb-8">
           {sections.map((section, index) => {
-            const isExpanded = expandedSection === section.id;
+            const isExpanded = allExpanded || expandedSection === section.id;
             const isGeneratingThis = generatingSectionId === section.id;
             const statusBadge = getStatusBadge(section.status, t);
             const isRefs = isReferencesSection(section.name);
             const isVariantsOpen = showVariants === section.id;
+            const sectionCitCount = getSectionCitations(section.id);
+            const hasUndo = (sectionHistory[section.id]?.length || 0) > 0;
 
             return (
               <motion.div
                 key={section.id}
+                ref={(el) => { sectionRefs.current[section.id] = el; }}
                 layout
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
+                transition={{ delay: index * 0.03 }}
                 className={cn(
                   "glass-panel overflow-hidden transition-all duration-300",
-                  isExpanded && "ring-2 ring-primary/30"
+                  isExpanded && "ring-2 ring-primary/30",
+                  isGeneratingThis && "ring-2 ring-primary/50 shadow-lg shadow-primary/10"
                 )}
               >
                 {/* Section header */}
                 <button
-                  onClick={() => setExpandedSection(isExpanded ? null : section.id)}
+                  onClick={() => { setExpandedSection(isExpanded && !allExpanded ? null : section.id); setAllExpanded(false); }}
                   className="w-full flex items-center justify-between p-4 hover:bg-secondary/30 transition-colors"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      {section.status === 'GENERATED' || section.status === 'EDITED' ? (
+                    <div className={cn(
+                      "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
+                      isGeneratingThis ? "bg-primary/20 animate-pulse" : "bg-primary/10"
+                    )}>
+                      {isGeneratingThis ? (
+                        <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                      ) : section.status === 'GENERATED' || section.status === 'EDITED' ? (
                         <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                       ) : (
                         <span className="text-sm font-medium text-primary">{index + 1}</span>
@@ -454,22 +662,25 @@ export const WritePhase = () => {
                         {section.content && !isRefs && (
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             <Hash className="w-3 h-3" />
-                            {getSectionWordCount(section.content)} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
+                            {getSectionWordCount(section.content)} {lang === 'uz' ? "so'z" : lang === 'ru' ? "сл" : "w"}
+                          </span>
+                        )}
+                        {sectionCitCount > 0 && (
+                          <span className="text-xs text-emerald-500 flex items-center gap-0.5">
+                            <ShieldCheck className="w-3 h-3" />
+                            {sectionCitCount}
                           </span>
                         )}
                         {isRefs && storedCitations.length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            ({storedCitations.length} {lang === 'uz' ? "ta" : ""})
-                          </span>
+                          <span className="text-xs text-muted-foreground">({storedCitations.length})</span>
                         )}
                       </div>
                     </div>
                   </div>
-                  {isExpanded ? (
-                    <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isGeneratingThis && <span className="text-xs text-primary animate-pulse">{genElapsed}s</span>}
+                    {isExpanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+                  </div>
                 </button>
 
                 {/* Expanded content */}
@@ -485,55 +696,27 @@ export const WritePhase = () => {
                       <div className="p-4 space-y-4">
                         {/* Action buttons */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Button
-                            onClick={() => handleGenerate(section.id)}
-                            disabled={isGenerating || (isRefs && storedCitations.length === 0)}
-                            className="gap-2"
-                          >
+                          <Button onClick={() => handleGenerate(section.id)} disabled={isGenerating || (isRefs && storedCitations.length === 0)} className="gap-2">
                             {isGeneratingThis ? (
-                              <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                {t.generating}
-                              </>
+                              <><Loader2 className="w-4 h-4 animate-spin" />{t.generating}</>
                             ) : (
-                              <>
-                                <Sparkles className="w-4 h-4" />
-                                {section.content ? t.regenerate : t.generate}
-                              </>
+                              <><Sparkles className="w-4 h-4" />{section.content ? t.regenerate : t.generate}</>
                             )}
                           </Button>
 
                           {/* Variants dropdown */}
                           {section.content && !isRefs && (
                             <div className="relative">
-                              <Button
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => setShowVariants(isVariantsOpen ? null : section.id)}
-                                disabled={isGenerating}
-                              >
+                              <Button variant="outline" className="gap-2" onClick={() => setShowVariants(isVariantsOpen ? null : section.id)} disabled={isGenerating}>
                                 <RefreshCw className="w-4 h-4" />
                                 {t.variants}
                                 <ChevronDown className="w-3 h-3" />
                               </Button>
-
                               <AnimatePresence>
                                 {isVariantsOpen && (
-                                  <motion.div
-                                    initial={{ opacity: 0, y: -8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -8 }}
-                                    className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-xl shadow-lg p-1 min-w-[200px]"
-                                  >
+                                  <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="absolute top-full left-0 mt-1 z-20 bg-card border border-border rounded-xl shadow-lg p-1 min-w-[200px]">
                                     {variantOptions.map(variant => (
-                                      <button
-                                        key={variant.id}
-                                        onClick={() => {
-                                          setShowVariants(null);
-                                          handleGenerate(section.id, variant.id);
-                                        }}
-                                        className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-secondary/50 transition-colors text-foreground"
-                                      >
+                                      <button key={variant.id} onClick={() => { setShowVariants(null); handleGenerate(section.id, variant.id); }} className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-secondary/50 transition-colors text-foreground">
                                         {variant.label}
                                       </button>
                                     ))}
@@ -542,15 +725,21 @@ export const WritePhase = () => {
                               </AnimatePresence>
                             </div>
                           )}
+
+                          {/* NEW: Undo button */}
+                          {hasUndo && (
+                            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => handleUndo(section.id)} disabled={isGenerating}>
+                              <Undo2 className="w-3.5 h-3.5" />
+                              {lang === 'uz' ? "Qaytarish" : lang === 'ru' ? "Отменить" : "Undo"}
+                            </Button>
+                          )}
                         </div>
 
                         {/* Info for references section */}
                         {isRefs && storedCitations.length === 0 && (
                           <div className="text-sm text-muted-foreground bg-secondary/30 rounded-lg p-3">
-                            {lang === 'uz'
-                              ? "Avval boshqa bo'limlarni yarating. Manbalar avtomatik to'planadi."
-                              : lang === 'ru'
-                              ? "Сначала сгенерируйте другие разделы. Источники будут собраны автоматически."
+                            {lang === 'uz' ? "Avval boshqa bo'limlarni yarating. Manbalar avtomatik to'planadi."
+                              : lang === 'ru' ? "Сначала сгенерируйте другие разделы. Источники будут собраны автоматически."
                               : "Generate other sections first. References will be collected automatically."}
                           </div>
                         )}
@@ -558,39 +747,44 @@ export const WritePhase = () => {
                         {/* Content editor */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <label className="text-sm text-muted-foreground">
-                              {t.content}
-                            </label>
+                            <label className="text-sm text-muted-foreground">{t.content}</label>
                             <div className="flex items-center gap-2">
                               {section.content && (
                                 <>
-                                  <span className="text-xs text-muted-foreground">
-                                    {getSectionWordCount(section.content)} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
-                                  </span>
-                                  <button
-                                    onClick={() => handleCopySection(section.content)}
-                                    className="p-1 rounded-md hover:bg-secondary transition-colors"
-                                    title={lang === 'uz' ? "Nusxalash" : lang === 'ru' ? "Копировать" : "Copy"}
-                                  >
+                                  <span className="text-xs text-muted-foreground">{getSectionWordCount(section.content)} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}</span>
+                                  <button onClick={() => handleCopySection(section.content)} className="p-1 rounded-md hover:bg-secondary transition-colors" title={lang === 'uz' ? "Nusxalash" : lang === 'ru' ? "Копировать" : "Copy"}>
                                     <ClipboardCopy className="w-3.5 h-3.5 text-muted-foreground" />
                                   </button>
                                 </>
                               )}
                             </div>
                           </div>
-                          <textarea
-                            value={section.content}
-                            onChange={(e) => handleContentChange(section.id, e.target.value)}
-                            placeholder={t.contentPlaceholder}
-                            className="w-full min-h-[300px] bg-secondary/30 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-y font-serif leading-relaxed"
-                          />
+
+                          {/* Loading animation during generation */}
+                          {isGeneratingThis && !section.content && (
+                            <div className="w-full min-h-[200px] bg-secondary/30 border border-primary/20 rounded-xl px-4 py-3 space-y-3 animate-pulse">
+                              <div className="h-4 bg-primary/10 rounded w-3/4" />
+                              <div className="h-4 bg-primary/10 rounded w-full" />
+                              <div className="h-4 bg-primary/10 rounded w-5/6" />
+                              <div className="h-4 bg-primary/10 rounded w-2/3" />
+                              <div className="h-4 bg-primary/10 rounded w-full" />
+                              <div className="h-4 bg-primary/10 rounded w-4/5" />
+                            </div>
+                          )}
+
+                          {(!isGeneratingThis || section.content) && (
+                            <textarea
+                              value={section.content}
+                              onChange={(e) => handleContentChange(section.id, e.target.value)}
+                              placeholder={t.contentPlaceholder}
+                              className="w-full min-h-[300px] bg-secondary/30 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-y font-serif leading-relaxed"
+                            />
+                          )}
                         </div>
 
                         {/* Section notes */}
                         <div>
-                          <label className="text-sm text-muted-foreground mb-2 block">
-                            {t.notes}
-                          </label>
+                          <label className="text-sm text-muted-foreground mb-2 block">{t.notes}</label>
                           <input
                             type="text"
                             value={section.notes}
@@ -600,14 +794,12 @@ export const WritePhase = () => {
                           />
                         </div>
 
-                        {/* Targeted regeneration — only shown when section already has content */}
+                        {/* Targeted regeneration with user instruction */}
                         {section.content && !isRefs && (
                           <div className="border-t border-border pt-4 space-y-3">
                             <div className="flex items-center gap-2">
                               <MessageSquarePlus className="w-4 h-4 text-primary" />
-                              <label className="text-sm font-medium text-foreground">
-                                {t.regenInstruction}
-                              </label>
+                              <label className="text-sm font-medium text-foreground">{t.regenInstruction}</label>
                             </div>
                             <textarea
                               value={sectionInstructions[section.id] || ''}
@@ -627,11 +819,7 @@ export const WritePhase = () => {
                               variant="outline"
                               className="gap-2 border-primary/30 text-primary hover:bg-primary/10"
                             >
-                              {isGeneratingThis ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <RefreshCw className="w-4 h-4" />
-                              )}
+                              {isGeneratingThis ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                               {t.regenWithChanges}
                             </Button>
                           </div>
@@ -647,45 +835,22 @@ export const WritePhase = () => {
 
         {/* Navigation */}
         <div className="flex justify-between pt-4">
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => setPhase("skeleton")}
-            className="gap-2"
-          >
+          <Button variant="outline" size="lg" onClick={() => setPhase("skeleton")} className="gap-2">
             <ArrowLeft className="w-5 h-5" />
             {t.backToStructure}
           </Button>
-          <Button
-            variant="hero"
-            size="lg"
-            className="gap-2"
-            onClick={handleExport}
-            disabled={isExporting || completedSections === 0}
-          >
+          <Button variant="hero" size="lg" className="gap-2" onClick={handleExport} disabled={isExporting || completedSections === 0}>
             {isExporting ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                {t.loading}
-              </>
+              <><Loader2 className="w-5 h-5 animate-spin" />{t.loading}</>
             ) : (
-              <>
-                <Download className="w-5 h-5" />
-                {t.exportDoc}
-              </>
+              <><Download className="w-5 h-5" />{t.exportDoc}</>
             )}
           </Button>
         </div>
       </motion.div>
 
       {/* Article Preview Modal */}
-      <ArticlePreview
-        isOpen={showPreview}
-        onClose={() => setShowPreview(false)}
-        title={title}
-        sections={sections}
-        language={lang}
-      />
+      <ArticlePreview isOpen={showPreview} onClose={() => setShowPreview(false)} title={title} sections={sections} language={lang} />
     </div>
   );
 };
