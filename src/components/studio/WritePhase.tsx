@@ -13,7 +13,10 @@ import {
   Wand2,
   CheckCircle2,
   Shield,
-  ShieldCheck
+  ShieldCheck,
+  MessageSquarePlus,
+  ClipboardCopy,
+  Hash
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, SectionStatus, CitationReference } from "@/store/projectStore";
@@ -65,6 +68,8 @@ export const WritePhase = () => {
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const batchCancelRef = useRef(false);
+  // sectionId -> user's instruction for targeted regeneration
+  const [sectionInstructions, setSectionInstructions] = useState<Record<string, string>>({});
 
   const sections = currentProject?.sections || [];
   const title = currentProject?.title || "";
@@ -72,7 +77,7 @@ export const WritePhase = () => {
   const t = getTranslation(lang);
   const storedCitations = currentProject?.citations || [];
 
-  const handleGenerate = async (sectionId: string, regenMode?: string) => {
+  const handleGenerate = async (sectionId: string, regenMode?: string, userInstruction?: string) => {
     setGeneratingSectionId(sectionId);
     setIsGenerating(true);
     setGenerationProgress(t.progressContext);
@@ -107,6 +112,7 @@ export const WritePhase = () => {
         },
         priorSummaries,
         regenMode,
+        userInstruction: userInstruction || undefined,
         targetWordCount: targetSectionWords,
         startingCitationNumber,
         isConclusion,
@@ -263,6 +269,29 @@ export const WritePhase = () => {
   const totalWords = countWords(sections);
   const verifiedCitations = storedCitations.filter((c: any) => c.verified).length;
 
+  // Word count for a single section
+  const getSectionWordCount = (content: string) => {
+    if (!content) return 0;
+    return content.trim().split(/\s+/).filter(w => w.length > 0).length;
+  };
+
+  // Copy section content to clipboard
+  const handleCopySection = (content: string) => {
+    navigator.clipboard.writeText(content);
+    toast.success(lang === 'uz' ? "Nusxalandi!" : lang === 'ru' ? "Скопировано!" : "Copied!");
+  };
+
+  // Copy full article to clipboard
+  const handleCopyAll = () => {
+    const fullText = sections
+      .filter(s => s.content)
+      .map(s => `${s.name}\n\n${s.content}`)
+      .join('\n\n---\n\n');
+    const articleText = `${title}\n\n${fullText}`;
+    navigator.clipboard.writeText(articleText);
+    toast.success(lang === 'uz' ? "Butun maqola nusxalandi!" : lang === 'ru' ? "Вся статья скопирована!" : "Full article copied!");
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       <motion.div
@@ -286,6 +315,17 @@ export const WritePhase = () => {
               </h2>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Copy full article */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleCopyAll}
+                disabled={completedSections === 0}
+              >
+                <ClipboardCopy className="w-4 h-4" />
+                {lang === 'uz' ? "Nusxalash" : lang === 'ru' ? "Копировать" : "Copy"}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -411,6 +451,12 @@ export const WritePhase = () => {
                         <span className={cn("text-xs px-2 py-0.5 rounded-full", statusBadge.class)}>
                           {statusBadge.label}
                         </span>
+                        {section.content && !isRefs && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Hash className="w-3 h-3" />
+                            {getSectionWordCount(section.content)} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
+                          </span>
+                        )}
                         {isRefs && storedCitations.length > 0 && (
                           <span className="text-xs text-muted-foreground">
                             ({storedCitations.length} {lang === 'uz' ? "ta" : ""})
@@ -511,9 +557,27 @@ export const WritePhase = () => {
 
                         {/* Content editor */}
                         <div>
-                          <label className="text-sm text-muted-foreground mb-2 block">
-                            {t.content}
-                          </label>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm text-muted-foreground">
+                              {t.content}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              {section.content && (
+                                <>
+                                  <span className="text-xs text-muted-foreground">
+                                    {getSectionWordCount(section.content)} {lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}
+                                  </span>
+                                  <button
+                                    onClick={() => handleCopySection(section.content)}
+                                    className="p-1 rounded-md hover:bg-secondary transition-colors"
+                                    title={lang === 'uz' ? "Nusxalash" : lang === 'ru' ? "Копировать" : "Copy"}
+                                  >
+                                    <ClipboardCopy className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
                           <textarea
                             value={section.content}
                             onChange={(e) => handleContentChange(section.id, e.target.value)}
@@ -535,6 +599,43 @@ export const WritePhase = () => {
                             className="w-full bg-secondary/30 border border-border rounded-xl px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm"
                           />
                         </div>
+
+                        {/* Targeted regeneration — only shown when section already has content */}
+                        {section.content && !isRefs && (
+                          <div className="border-t border-border pt-4 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <MessageSquarePlus className="w-4 h-4 text-primary" />
+                              <label className="text-sm font-medium text-foreground">
+                                {t.regenInstruction}
+                              </label>
+                            </div>
+                            <textarea
+                              value={sectionInstructions[section.id] || ''}
+                              onChange={(e) => setSectionInstructions(prev => ({ ...prev, [section.id]: e.target.value }))}
+                              placeholder={t.regenInstructionPlaceholder}
+                              rows={2}
+                              className="w-full bg-primary/5 border border-primary/20 rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm resize-none"
+                            />
+                            <Button
+                              onClick={() => {
+                                const instruction = sectionInstructions[section.id];
+                                if (!instruction?.trim()) return;
+                                setSectionInstructions(prev => ({ ...prev, [section.id]: '' }));
+                                handleGenerate(section.id, undefined, instruction.trim());
+                              }}
+                              disabled={isGenerating || !sectionInstructions[section.id]?.trim()}
+                              variant="outline"
+                              className="gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                            >
+                              {isGeneratingThis ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-4 h-4" />
+                              )}
+                              {t.regenWithChanges}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}

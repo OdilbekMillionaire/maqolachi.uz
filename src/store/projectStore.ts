@@ -330,7 +330,7 @@ export const useProjectStore = create<ProjectState>()(
     }),
     {
       name: 'maqolachi-storage',
-      partialize: (state) => ({ projects: state.projects }),
+      partialize: (state) => ({ projects: state.projects, currentProject: state.currentProject }),
     }
   )
 );

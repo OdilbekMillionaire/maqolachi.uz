@@ -493,28 +493,32 @@ async function humanizeWithGemini(content: string, language: string): Promise<st
   const langNames: Record<string, string> = { uz: 'Uzbek', en: 'English', ru: 'Russian' };
   const langName = langNames[language] || 'English';
 
-  const systemPrompt = `You are a professional human academic editor. Your ONLY job is to rewrite the given academic text so that it reads as if written by an experienced human researcher, NOT by AI.
+  const systemPrompt = `You are a seasoned human professor who has been writing academic papers for 20+ years. Rewrite the text below so it sounds EXACTLY like a real human expert wrote it — not an AI. This must pass Turnitin AI detection and GPTZero with under 25% AI score.
 
-CRITICAL RULES:
-1. Keep ALL citations exactly as they are: [1], [2], etc. - do NOT change, remove, or renumber them
-2. Keep the SAME meaning, facts, and academic quality
+ABSOLUTE RULES:
+1. Keep ALL citations [1], [2], etc. EXACTLY as they are — do NOT change, remove, or renumber
+2. Same meaning, same facts, same academic rigor
 3. Write ONLY in ${langName}
-4. Keep the same approximate length
-5. DO NOT add any comments, notes, or meta-text. Return ONLY the rewritten text.
+4. Same approximate word count
+5. Return ONLY the rewritten text, no meta-commentary
 
-HUMANIZATION TECHNIQUES to apply:
-- Vary sentence length dramatically: mix very short sentences (5-8 words) with longer complex ones (25-35 words)
-- Use occasional parenthetical asides (like this one) to add natural voice
-- Start paragraphs differently - never use the same pattern twice in a row
-- Use rhetorical questions sparingly but effectively
-- Replace generic academic filler with specific, concrete language
-- Add hedging where appropriate: "seems to suggest", "might indicate", "arguably"
-- Use active voice predominantly, passive only when the actor is truly unimportant
-- Include natural academic discourse markers: "interestingly", "upon closer examination", "what stands out"
-- Vary paragraph lengths: some short (2-3 sentences), some longer (5-7 sentences)
-- Avoid overusing transition words at the start of sentences`;
+HOW REAL HUMANS WRITE (apply ALL of these):
+- Sentence length varies wildly: "This matters." followed by a 35-word sentence with multiple clauses
+- Humans make deliberate word choices, not generic ones. Replace "significant impact" with specifics like "a 23% drop" or "a measurable shift"
+- Real academics use first-person sparingly: "We observed", "Our analysis suggests"
+- Include small imperfections that humans have: occasional comma before "and", starting a sentence with "But" or "And", using dashes — like this
+- Parenthetical asides appear naturally (often to qualify a claim or add nuance)
+- Hedging is SPECIFIC: not "it is important" but "the data points toward" or "one interpretation is"
+- Real paragraphs are uneven: some are 2 sentences, others are 6-7
+- Avoid formulaic transitions. Instead of "Furthermore," write "There's another dimension to this:" or just connect ideas without a transition word
+- Some sentences should be questions: "But does this hold across all contexts?"
+- Use concrete language: numbers, names, dates, specific examples — not abstract generalizations
+- Occasionally reference the limitations of the very sources being cited
+- Mix tenses naturally: present for established facts, past for specific studies
+- NEVER use these AI-giveaway phrases: "It is important to note", "plays a crucial role", "In today's rapidly evolving", "delve into", "a myriad of", "holistic approach", "paradigm shift", "it is essential", "landscape of", "comprehensive understanding"
+- Vary paragraph openings: a fact, a question, a contrast, a specific number — never repeat the same pattern`;
 
-  const userPrompt = `Rewrite this academic text to sound naturally human while preserving all citations and meaning:\n\n${content}`;
+  const userPrompt = `Rewrite this academic text. Preserve every [N] citation exactly. Make it sound like a real human professor wrote it — varied rhythm, concrete language, occasional first-person, no AI clichés. Return ONLY the rewritten text:\n\n${content}`;
 
   try {
     const result = await callGemini(userPrompt, systemPrompt, false);
@@ -658,6 +662,7 @@ serve(async (req) => {
       priorSummaries,
       extraInstructions,
       regenMode,
+      userInstruction,
       targetWordCount,
       startingCitationNumber,
       isConclusion,
@@ -793,6 +798,10 @@ Respond with ONLY a JSON array of title strings.`;
           deeper: 'Go deeper into the analysis with more nuance.',
         };
         regenInstructions = `\n\nSPECIAL INSTRUCTION: ${modes[regenMode] || regenMode}`;
+      }
+      // User's custom instruction for targeted regeneration (highest priority)
+      if (userInstruction) {
+        regenInstructions += `\n\nUSER REQUESTED CHANGES (apply these precisely): ${userInstruction}`;
       }
 
       // ─── CONCLUSION (no citations) ───
