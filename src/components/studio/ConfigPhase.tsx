@@ -155,7 +155,7 @@ export const ConfigPhase = () => {
           <OnboardingTour />
 
           {/* Language selection */}
-          <div className="glass-panel p-4 sm:p-6">
+          <div className="glass-panel p-4 sm:p-6 transition-all" data-tour="language">
             <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <Globe className="w-5 h-5 text-primary" />
               <h2 className="font-semibold text-sm sm:text-base">{t.language}</h2>
@@ -180,7 +180,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Domain selection */}
-          <div className="glass-panel p-4 sm:p-6">
+          <div className="glass-panel p-4 sm:p-6 transition-all" data-tour="domain">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.domain}</h2>
@@ -205,8 +205,8 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Academic level and citation style */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="glass-panel p-4 sm:p-6">
+          <div className="grid md:grid-cols-2 gap-6" data-tour="level">
+            <div className="glass-panel p-4 sm:p-6 transition-all">
               <div className="flex items-center gap-2 mb-4">
                 <GraduationCap className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.level}</h2>
@@ -338,7 +338,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Main idea input */}
-          <div className="glass-panel p-4 sm:p-6">
+          <div className="glass-panel p-4 sm:p-6 transition-all" data-tour="main-idea">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.mainIdea}</h2>
@@ -520,7 +520,7 @@ export const ConfigPhase = () => {
           </motion.div>
 
           {/* Next button */}
-          <div className="flex justify-end pt-4">
+          <div className="flex justify-end pt-4" data-tour="next-step">
             <Button
               variant="hero"
               size="lg"

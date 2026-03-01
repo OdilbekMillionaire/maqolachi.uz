@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { useProjectStore, Section, articleTemplates, TemplateId } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 import { getTranslation, Language } from "@/lib/translations";
+import { SkeletonTour } from "./SkeletonTour";
 
 export const SkeletonPhase = () => {
   const { currentProject, setPhase, addSection, updateSection, removeSection, reorderSections, applyTemplate } = useProjectStore();
@@ -70,6 +71,9 @@ export const SkeletonPhase = () => {
           <p className="text-muted-foreground">{t.skeletonSubtitle}</p>
         </div>
         
+        {/* Onboarding Tour for Skeleton */}
+        <SkeletonTour />
+
         {/* Title preview */}
         <div className="glass-panel p-6 mb-8">
           <p className="text-xs text-muted-foreground mb-2">{t.selectedTitleLabel}</p>
@@ -79,7 +83,7 @@ export const SkeletonPhase = () => {
         </div>
         
         {/* Template selector */}
-        <div className="glass-panel p-6 mb-8">
+        <div className="glass-panel p-6 mb-8 transition-all" data-tour="template-selector">
           <div className="flex items-center gap-2 mb-4">
             <LayoutTemplate className="w-5 h-5 text-primary" />
             <h2 className="font-semibold">
@@ -122,7 +126,7 @@ export const SkeletonPhase = () => {
         </div>
 
         {/* Sections list */}
-        <div className="glass-panel p-6 mb-8">
+        <div className="glass-panel p-6 mb-8 transition-all" data-tour="sections-list">
           <div className="flex items-center justify-between mb-6">
             <h2 className="font-semibold">{t.sectionsLabel}</h2>
             <Button
@@ -271,6 +275,7 @@ export const SkeletonPhase = () => {
             size="lg"
             onClick={() => setPhase("write")}
             className="gap-2"
+            data-tour="start-writing"
           >
             {t.startWriting}
             <ArrowRight className="w-5 h-5" />

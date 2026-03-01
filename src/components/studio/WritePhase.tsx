@@ -138,8 +138,13 @@ export const WritePhase = () => {
   };
 
   const handleGenerate = async (sectionId: string, regenMode?: string, userInstruction?: string) => {
-    // NEW: Save previous content for undo
-    const section = sections.find(s => s.id === sectionId);
+    // Read FRESH state from store each time (critical for batch generation)
+    const freshProject = useProjectStore.getState().currentProject;
+    const freshSections = freshProject?.sections || [];
+    const freshCitations = freshProject?.citations || [];
+    const section = freshSections.find(s => s.id === sectionId);
+
+    // Save previous content for undo
     if (section?.content) {
       setSectionHistory(prev => ({
         ...prev,
@@ -152,29 +157,30 @@ export const WritePhase = () => {
     setGenerationProgress(t.progressContext);
     setShowVariants(null);
     setGenStartTime(Date.now());
-
-    // Scroll to section
     scrollToSection(sectionId);
 
-    const sectionIndex = sections.findIndex(s => s.id === sectionId);
+    const sectionIndex = freshSections.findIndex(s => s.id === sectionId);
 
-    const priorSummaries = sections
+    // CRITICAL FIX: Pass FULL prior content (not just 200-char summaries) to prevent repetition
+    const priorSummaries = freshSections
       .slice(0, sectionIndex)
-      .filter(s => s.summary)
-      .map(s => ({ name: s.name, summary: s.summary }));
+      .filter(s => s.content)
+      .map(s => ({
+        name: s.name,
+        summary: s.content!.substring(0, 800) // Give AI enough context to avoid repeating
+      }));
 
-    const totalSections = sections.filter(s => !isReferencesSection(s.name)).length;
+    const totalSections = freshSections.filter(s => !isReferencesSection(s.name)).length;
     const targetTotalWords = 5000;
     const targetSectionWords = Math.floor(targetTotalWords / totalSections);
 
-    const startingCitationNumber = getNextCitationNumber();
+    const startingCitationNumber = useProjectStore.getState().getNextCitationNumber();
     const isConclusion = isConclusionSection(section?.name || '');
     const isReferences = isReferencesSection(section?.name || '');
 
     try {
       setGenerationProgress(t.progressGenerating);
 
-      // Combine section notes with user instruction for richer context
       const sectionNotes = section?.notes?.trim();
       const combinedInstruction = [sectionNotes, userInstruction].filter(Boolean).join('. ') || undefined;
 
@@ -182,9 +188,9 @@ export const WritePhase = () => {
         type: isReferences ? 'references' : 'section',
         sectionName: section?.name,
         config: {
-          ...currentProject?.config,
-          title: currentProject?.title,
-          sources: currentProject?.sources || []
+          ...freshProject?.config,
+          title: freshProject?.title,
+          sources: freshProject?.sources || []
         },
         priorSummaries,
         regenMode,
@@ -193,7 +199,7 @@ export const WritePhase = () => {
         startingCitationNumber,
         isConclusion,
         isReferences,
-        storedCitations: storedCitations,
+        storedCitations: freshCitations,
         humanize: humanizeContent
       };
 
@@ -204,7 +210,7 @@ export const WritePhase = () => {
       if (error) throw error;
 
       setGenerationProgress(t.progressPolishing);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       if (data?.content) {
         updateSection(sectionId, {
@@ -222,16 +228,15 @@ export const WritePhase = () => {
           addCitations(citationsWithSectionId);
         }
 
-        // NEW: Enhanced toast with word count
         const wc = data.content.trim().split(/\s+/).length;
         const citCount = data.citations?.length || 0;
         toast.success(
           `${t.sectionGenerated} (${wc} ${lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}${citCount > 0 ? `, ${citCount} ${lang === 'uz' ? "manba" : lang === 'ru' ? "ист." : "refs"}` : ''})`
         );
 
-        // NEW: Auto-continue to next section
+        // Auto-continue (only for manual single-section generate, not batch)
         if (autoContinue && !isBatchGenerating) {
-          const nextSection = sections[sectionIndex + 1];
+          const nextSection = freshSections[sectionIndex + 1];
           if (nextSection && nextSection.status === 'EMPTY' && !isReferencesSection(nextSection.name)) {
             setTimeout(() => handleGenerate(nextSection.id), 1500);
           }
@@ -280,9 +285,12 @@ export const WritePhase = () => {
     toast.info(lang === 'uz' ? "Oldingi versiya qaytarildi" : lang === 'ru' ? "Предыдущая версия восстановлена" : "Previous version restored");
   };
 
-  // Batch generate all sections sequentially
+  // QUEUE-BASED batch generation: generates each section one-by-one sequentially
+  // Each section reads FRESH prior content from the store so it knows what was already written
   const handleBatchGenerate = async () => {
-    const generableSections = sections.filter(
+    // Read fresh state at start
+    const freshSections = useProjectStore.getState().currentProject?.sections || [];
+    const generableSections = freshSections.filter(
       s => s.status === 'EMPTY' && !isReferencesSection(s.name)
     );
 
@@ -295,22 +303,38 @@ export const WritePhase = () => {
 
     setIsBatchGenerating(true);
     batchCancelRef.current = false;
-    setBatchProgress({ current: 0, total: generableSections.length });
+    const totalCount = generableSections.length;
+    setBatchProgress({ current: 0, total: totalCount });
+
+    toast.info(
+      lang === 'uz' ? `${totalCount} bo'lim navbatda. Har biri alohida generatsiya qilinadi...`
+        : lang === 'ru' ? `${totalCount} разделов в очереди. Каждый генерируется отдельно...`
+        : `${totalCount} sections queued. Each will be generated individually...`,
+      { duration: 4000 }
+    );
 
     for (let i = 0; i < generableSections.length; i++) {
       if (batchCancelRef.current) break;
 
-      setBatchProgress({ current: i + 1, total: generableSections.length });
-      await handleGenerate(generableSections[i].id);
+      const currentSection = generableSections[i];
+      setBatchProgress({ current: i + 1, total: totalCount });
 
-      if (i < generableSections.length - 1) {
-        await new Promise(r => setTimeout(r, 2000));
+      // Generate this section — handleGenerate reads fresh state internally
+      await handleGenerate(currentSection.id);
+
+      // Wait between sections to let the store settle and avoid rate limits
+      if (i < generableSections.length - 1 && !batchCancelRef.current) {
+        await new Promise(r => setTimeout(r, 3000));
       }
     }
 
+    // Finally generate references if all sections done
     if (!batchCancelRef.current) {
-      const refsSection = sections.find(s => isReferencesSection(s.name));
-      if (refsSection) {
+      const latestSections = useProjectStore.getState().currentProject?.sections || [];
+      const refsSection = latestSections.find(s => isReferencesSection(s.name));
+      if (refsSection && refsSection.status === 'EMPTY') {
+        setBatchProgress({ current: totalCount, total: totalCount });
+        await new Promise(r => setTimeout(r, 2000));
         await handleGenerate(refsSection.id);
       }
     }

@@ -803,9 +803,9 @@ Respond with ONLY a JSON array of title strings.`;
         ? `\n\nUser-provided priority sources (cite these first):\n${sources.map((s: any, i: number) => `[${startNum + i}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
         : '';
 
-      // Prior section context
+      // Prior section context — uses FULL content excerpts (not just short summaries) to prevent repetition
       const priorContext = priorSummaries?.length
-        ? `\n\nPrior sections for continuity:\n${priorSummaries.map((s: any) => `${s.name}: ${s.summary}`).join('\n\n')}`
+        ? `\n\n=== ALREADY WRITTEN SECTIONS (DO NOT REPEAT ANY OF THIS CONTENT) ===\n${priorSummaries.map((s: any) => `--- ${s.name} ---\n${s.summary}`).join('\n\n')}\n=== END OF PRIOR CONTENT — YOUR SECTION MUST BE ENTIRELY ORIGINAL ===`
         : '';
 
       // Regeneration instructions
@@ -878,40 +878,48 @@ IMPORTANT: Do NOT include any citations [1], [2] or references. This is an abstr
       );
 
       if (isKeywords) {
-        const systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
-Generate a professional keywords section for an academic article.
+        const systemPrompt = `Output ONLY a single line of academic keywords separated by semicolons. Example: "artificial intelligence; machine learning; neural networks; deep learning; computer vision"
+RULES: 5-8 keywords, each 1-3 words, language: ${langName}, domain: ${domain}. NO explanations, NO descriptions, NO sentences, NO bullets, NO numbering. ONLY the keywords line.`;
 
-KEYWORDS RULES:
-- Write ONLY in ${langName}
-- Return ONLY keywords separated by semicolons (;)
-- Generate 5-8 relevant academic keywords/key phrases
-- Keywords should reflect the core concepts of the article
-- NO sentences, NO paragraphs, NO explanations, NO citations
-- NO numbered lists, NO bullet points
-- Format example: "keyword one; keyword two; keyword three; keyword four"
-- Each keyword can be 1-3 words, like professional academic articles
-- Keywords must be relevant to domain: ${domain}`;
+        const userPrompt = `Keywords for: "${title}". Output format: keyword1; keyword2; keyword3; keyword4; keyword5`;
 
-        const userPrompt = `Generate professional academic keywords for: "${title}"
-Domain: ${domain}, Level: ${academicLevel}
-Return ONLY keywords separated by semicolons. Nothing else.${regenInstructions}`;
+        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.3, 200);
 
-        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.5, 500);
-
-        // Clean up: remove any citations, bullet points, numbering
+        // BULLETPROOF post-processing — force exact format no matter what AI returns
         content = content.replace(/\[\d+\]/g, '');
-        content = content.replace(/^\s*[-*•\d.]+\s*/gm, '');
-        content = content.replace(/^(keywords?|kalit\s*so'zlar|ключевые\s*слова)\s*:?\s*/i, '');
-        content = content.trim();
+        content = content.replace(/\*\*/g, '');
+        content = content.replace(/["""'']/g, '');
+        // Remove any "Keywords:" prefix in any language
+        content = content.replace(/^(keywords?|kalit\s*so['']?zlar|ключевые\s*слова)\s*:?\s*/im, '');
+        // Remove numbering, bullets, dashes
+        content = content.replace(/^\s*[-*•►▸]\s*/gm, '');
+        content = content.replace(/^\s*\d+[\.\)]\s*/gm, '');
 
-        // If the response came as newline-separated, convert to semicolons
-        if (content.includes('\n') && !content.includes(';')) {
-          content = content.split('\n').map(l => l.trim()).filter(Boolean).join('; ');
-        }
+        // Split by any delimiter (newlines, semicolons, commas, pipes)
+        let keywords = content
+          .split(/[;\n|]/)
+          .map(k => k.trim())
+          .filter(k => k.length > 0 && k.length < 60);
 
-        const summary = content;
+        // If any "keyword" is actually a sentence (>5 words), skip it
+        keywords = keywords.filter(k => k.split(/\s+/).length <= 5);
 
-        return new Response(JSON.stringify({ content, summary, citations: [], sourcesMetadata: [] }), {
+        // Remove duplicates (case-insensitive)
+        const seen = new Set<string>();
+        keywords = keywords.filter(k => {
+          const lower = k.toLowerCase();
+          if (seen.has(lower)) return false;
+          seen.add(lower);
+          return true;
+        });
+
+        // Take 5-8, rejoin with semicolons
+        keywords = keywords.slice(0, 8);
+        content = keywords.length >= 3
+          ? keywords.join('; ')
+          : content.replace(/\n/g, '; ').replace(/\s{2,}/g, ' ').trim();
+
+        return new Response(JSON.stringify({ content, summary: content, citations: [], sourcesMetadata: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

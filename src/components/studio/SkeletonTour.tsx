@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ArrowRight, ArrowLeft, Globe, BookOpen, GraduationCap, Lightbulb, Pen } from "lucide-react";
+import { X, ArrowRight, ArrowLeft, LayoutTemplate, GripVertical, Plus, Pen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "@/store/settingsStore";
 import { cn } from "@/lib/utils";
@@ -9,129 +9,110 @@ interface TourStep {
   icon: React.ReactNode;
   title: string;
   description: string;
-  scrollTo?: string; // data-tour attribute to scroll to
+  scrollTo?: string;
 }
 
-const configSteps: Record<string, TourStep[]> = {
+const skeletonSteps: Record<string, TourStep[]> = {
   uz: [
     {
-      icon: <Globe className="w-6 h-6" />,
-      title: "1. Tilni tanlang",
-      description: "Maqolangiz qaysi tilda yozilishini belgilang — o'zbek, ingliz yoki rus tilida.",
-      scrollTo: "language",
+      icon: <LayoutTemplate className="w-6 h-6" />,
+      title: "1. Maqola turini tanlang",
+      description: "IMRAD, Adabiyotlar sharhi, Keys-stadi, Argumentativ yoki Maxsus — maqolangizga mos tuzilmani tanlang.",
+      scrollTo: "template-selector",
     },
     {
-      icon: <BookOpen className="w-6 h-6" />,
-      title: "2. Sohani belgilang",
-      description: "Huquq, iqtisodiyot, IT — qaysi ilmiy soha ekanligini tanlang. AI manbalar topishda foydalanadi.",
-      scrollTo: "domain",
+      icon: <GripVertical className="w-6 h-6" />,
+      title: "2. Bo'limlarni tartibga keltiring",
+      description: "Bo'limlarni suring (drag) orqali tartibini o'zgartiring, nomini tahrirlang yoki keraksizlarini o'chiring.",
+      scrollTo: "sections-list",
     },
     {
-      icon: <GraduationCap className="w-6 h-6" />,
-      title: "3. Daraja va uslub",
-      description: "Bakalavr/Magistr/PhD darajasini, iqtibos formatini (APA, MLA...) va yozish uslubini belgilang.",
-      scrollTo: "level",
-    },
-    {
-      icon: <Lightbulb className="w-6 h-6" />,
-      title: "4. Asosiy g'oya",
-      description: "Tadqiqot savolingizni yozing va \"Sarlavhalar generatsiya qilish\" tugmasini bosing. AI sarlavhalar taklif qiladi.",
-      scrollTo: "main-idea",
+      icon: <Plus className="w-6 h-6" />,
+      title: "3. Yangi bo'lim qo'shing",
+      description: "\"Bo'lim qo'shish\" tugmasi orqali maxsus bo'limlar qo'shishingiz mumkin.",
+      scrollTo: "sections-list",
     },
     {
       icon: <Pen className="w-6 h-6" />,
-      title: "5. Keyingi qadamlar",
-      description: "Sarlavhani tanlagach, \"Keyingi bosqich\" tugmasini bosing. Maqola tuzilishi va yozish sahifalari kutmoqda!",
-      scrollTo: "next-step",
+      title: "4. Yozishni boshlang!",
+      description: "Tayyor bo'lgach, \"Yozishni boshlash\" tugmasini bosing. AI har bir bo'limni generatsiya qiladi.",
+      scrollTo: "start-writing",
     },
   ],
   en: [
     {
-      icon: <Globe className="w-6 h-6" />,
-      title: "1. Select Language",
-      description: "Choose the language for your article — Uzbek, English, or Russian.",
-      scrollTo: "language",
+      icon: <LayoutTemplate className="w-6 h-6" />,
+      title: "1. Choose Article Type",
+      description: "IMRAD, Literature Review, Case Study, Argumentative, or Custom — pick the right structure for your article.",
+      scrollTo: "template-selector",
     },
     {
-      icon: <BookOpen className="w-6 h-6" />,
-      title: "2. Choose Domain",
-      description: "Law, Economics, IT — select your field. AI uses this to find relevant sources.",
-      scrollTo: "domain",
+      icon: <GripVertical className="w-6 h-6" />,
+      title: "2. Arrange Sections",
+      description: "Drag sections to reorder, edit names, or remove ones you don't need.",
+      scrollTo: "sections-list",
     },
     {
-      icon: <GraduationCap className="w-6 h-6" />,
-      title: "3. Level & Style",
-      description: "Pick academic level (Bachelor/Master/PhD), citation format (APA, MLA...) and writing style.",
-      scrollTo: "level",
-    },
-    {
-      icon: <Lightbulb className="w-6 h-6" />,
-      title: "4. Main Idea",
-      description: "Type your research question and click \"Generate Titles\". AI will suggest title options.",
-      scrollTo: "main-idea",
+      icon: <Plus className="w-6 h-6" />,
+      title: "3. Add Custom Sections",
+      description: "Use the \"Add Section\" button to add any custom sections you need.",
+      scrollTo: "sections-list",
     },
     {
       icon: <Pen className="w-6 h-6" />,
-      title: "5. Next Steps",
-      description: "After picking a title, click \"Next Step\". Article structure and writing pages are waiting!",
-      scrollTo: "next-step",
+      title: "4. Start Writing!",
+      description: "When ready, click \"Start Writing\". AI will generate each section for you.",
+      scrollTo: "start-writing",
     },
   ],
   ru: [
     {
-      icon: <Globe className="w-6 h-6" />,
-      title: "1. Выберите язык",
-      description: "Укажите язык статьи — узбекский, английский или русский.",
-      scrollTo: "language",
+      icon: <LayoutTemplate className="w-6 h-6" />,
+      title: "1. Выберите тип статьи",
+      description: "ИМРАД, Обзор литературы, Кейс-стади, Аргументативная или Пользовательская — выберите подходящую структуру.",
+      scrollTo: "template-selector",
     },
     {
-      icon: <BookOpen className="w-6 h-6" />,
-      title: "2. Выберите область",
-      description: "Право, экономика, ИТ — укажите область. ИИ использует это для поиска источников.",
-      scrollTo: "domain",
+      icon: <GripVertical className="w-6 h-6" />,
+      title: "2. Упорядочьте разделы",
+      description: "Перетаскивайте разделы для изменения порядка, редактируйте названия или удаляйте ненужные.",
+      scrollTo: "sections-list",
     },
     {
-      icon: <GraduationCap className="w-6 h-6" />,
-      title: "3. Уровень и стиль",
-      description: "Выберите уровень (бакалавр/магистр/PhD), формат цитирования (APA, MLA...) и стиль.",
-      scrollTo: "level",
-    },
-    {
-      icon: <Lightbulb className="w-6 h-6" />,
-      title: "4. Основная идея",
-      description: "Введите исследовательский вопрос и нажмите «Сгенерировать заголовки». ИИ предложит варианты.",
-      scrollTo: "main-idea",
+      icon: <Plus className="w-6 h-6" />,
+      title: "3. Добавьте разделы",
+      description: "Кнопка «Добавить раздел» позволяет добавить любые пользовательские разделы.",
+      scrollTo: "sections-list",
     },
     {
       icon: <Pen className="w-6 h-6" />,
-      title: "5. Дальнейшие шаги",
-      description: "Выбрав заголовок, нажмите «Следующий этап». Впереди — структура и написание статьи!",
-      scrollTo: "next-step",
+      title: "4. Начните писать!",
+      description: "Когда всё готово, нажмите «Начать написание». ИИ сгенерирует каждый раздел.",
+      scrollTo: "start-writing",
     },
   ],
 };
 
-export const OnboardingTour = () => {
-  const { hasSeenTour, setHasSeenTour, language } = useSettingsStore();
+export const SkeletonTour = () => {
+  const { hasSeenSkeletonTour, setHasSeenSkeletonTour, language } = useSettingsStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [show, setShow] = useState(false);
 
   const lang = language || "uz";
-  const steps = configSteps[lang] || configSteps["uz"];
+  const steps = skeletonSteps[lang] || skeletonSteps["uz"];
 
   useEffect(() => {
-    if (!hasSeenTour) {
-      const timer = setTimeout(() => setShow(true), 600);
+    if (!hasSeenSkeletonTour) {
+      const timer = setTimeout(() => setShow(true), 400);
       return () => clearTimeout(timer);
     }
-  }, [hasSeenTour]);
+  }, [hasSeenSkeletonTour]);
 
   const scrollToTarget = useCallback((scrollTo?: string) => {
     if (!scrollTo) return;
     const el = document.querySelector(`[data-tour="${scrollTo}"]`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Briefly highlight the element
       el.classList.add("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background");
       setTimeout(() => {
         el.classList.remove("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background");
@@ -141,18 +122,17 @@ export const OnboardingTour = () => {
 
   useEffect(() => {
     if (show && steps[currentStep]?.scrollTo) {
-      // Small delay to let the modal render, then scroll
       const timer = setTimeout(() => scrollToTarget(steps[currentStep].scrollTo), 300);
       return () => clearTimeout(timer);
     }
   }, [currentStep, show, steps, scrollToTarget]);
 
-  if (hasSeenTour || !show) return null;
+  if (hasSeenSkeletonTour || !show) return null;
 
   const step = steps[currentStep];
   const isLast = currentStep === steps.length - 1;
 
-  const close = () => { setShow(false); setHasSeenTour(true); };
+  const close = () => { setShow(false); setHasSeenSkeletonTour(true); };
   const next = () => { if (isLast) close(); else setCurrentStep(s => s + 1); };
   const prev = () => { if (currentStep > 0) setCurrentStep(s => s - 1); };
 
@@ -193,8 +173,6 @@ export const OnboardingTour = () => {
               </div>
             </motion.div>
           </AnimatePresence>
-
-          {/* Footer */}
           <div className="px-5 pb-4 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               {steps.map((_, i) => (
