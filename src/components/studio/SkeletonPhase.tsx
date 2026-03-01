@@ -1,21 +1,23 @@
 import { motion, Reorder } from "framer-motion";
 import { useState } from "react";
-import { 
-  GripVertical, 
-  Plus, 
-  Trash2, 
+import {
+  GripVertical,
+  Plus,
+  Trash2,
   Edit2,
   ArrowRight,
   ArrowLeft,
-  Lock
+  Lock,
+  LayoutTemplate,
+  Check
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useProjectStore, Section } from "@/store/projectStore";
+import { useProjectStore, Section, articleTemplates, TemplateId } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 import { getTranslation, Language } from "@/lib/translations";
 
 export const SkeletonPhase = () => {
-  const { currentProject, setPhase, addSection, updateSection, removeSection, reorderSections } = useProjectStore();
+  const { currentProject, setPhase, addSection, updateSection, removeSection, reorderSections, applyTemplate } = useProjectStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newSectionName, setNewSectionName] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
@@ -24,6 +26,9 @@ export const SkeletonPhase = () => {
   const lang = (currentProject?.config?.language || 'uz') as Language;
   const t = getTranslation(lang);
   const title = currentProject?.title || t.noTitleSelected;
+  const currentTemplateId = (currentProject?.config?.templateId || 'imrad') as TemplateId;
+
+  const templateIds: TemplateId[] = ['imrad', 'literature-review', 'case-study', 'argumentative', 'theoretical', 'custom'];
   
   const handleReorder = (newOrder: Section[]) => {
     const reordered = newOrder.map((section, index) => ({
@@ -73,6 +78,49 @@ export const SkeletonPhase = () => {
           </h2>
         </div>
         
+        {/* Template selector */}
+        <div className="glass-panel p-6 mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <LayoutTemplate className="w-5 h-5 text-primary" />
+            <h2 className="font-semibold">
+              {lang === 'uz' ? "Maqola turi" : lang === 'ru' ? "Тип статьи" : "Article Type"}
+            </h2>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {templateIds.map((tplId) => {
+              const tpl = articleTemplates[tplId]?.[lang];
+              if (!tpl) return null;
+              const isSelected = currentTemplateId === tplId;
+              return (
+                <button
+                  key={tplId}
+                  onClick={() => applyTemplate(tplId)}
+                  className={cn(
+                    "flex flex-col items-start px-4 py-3 rounded-xl border transition-all text-left",
+                    isSelected
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-secondary/50 hover:border-primary/50"
+                  )}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <span className={cn(
+                      "font-medium text-sm",
+                      isSelected ? "text-foreground" : "text-muted-foreground"
+                    )}>
+                      {tpl.label}
+                    </span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-primary ml-auto" />}
+                  </div>
+                  <span className="text-xs text-muted-foreground mt-1">{tpl.description}</span>
+                  <span className="text-[10px] text-muted-foreground/60 mt-1">
+                    {tpl.sections.length} {lang === 'uz' ? "bo'lim" : lang === 'ru' ? "разделов" : "sections"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Sections list */}
         <div className="glass-panel p-6 mb-8">
           <div className="flex items-center justify-between mb-6">

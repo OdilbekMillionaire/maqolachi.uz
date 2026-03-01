@@ -79,6 +79,7 @@ interface ProjectState {
   addCitations: (citations: CitationReference[]) => void;
   clearCitations: () => void;
   getNextCitationNumber: () => number;
+  applyTemplate: (templateId: TemplateId) => void;
   setIsGenerating: (value: boolean) => void;
   setGenerationProgress: (value: string) => void;
   saveProject: () => void;
@@ -95,6 +96,287 @@ const defaultConfig: ProjectConfig = {
   mainIdea: '',
   styleMode: 'formal',
   modelMode: 'fast',
+};
+
+export type TemplateId = 'imrad' | 'literature-review' | 'case-study' | 'argumentative' | 'theoretical' | 'custom';
+
+export interface ArticleTemplate {
+  id: TemplateId;
+  sections: Array<{ name: string }>;
+}
+
+// Templates with multilingual section names
+export const articleTemplates: Record<TemplateId, Record<Language, { label: string; description: string; sections: Array<{ name: string }> }>> = {
+  imrad: {
+    uz: {
+      label: 'IMRAD',
+      description: "Standart ilmiy maqola tuzilishi",
+      sections: [
+        { name: "Annotatsiya (Abstract)" },
+        { name: "Kalit so'zlar (Keywords)" },
+        { name: "Kirish (Introduction)" },
+        { name: "Metodologiya (Methodology)" },
+        { name: "Natijalar (Results)" },
+        { name: "Muhokama (Discussion)" },
+        { name: "Xulosa (Conclusion)" },
+        { name: "Adabiyotlar (References)" },
+      ],
+    },
+    en: {
+      label: 'IMRAD',
+      description: 'Standard scientific article structure',
+      sections: [
+        { name: "Abstract" },
+        { name: "Keywords" },
+        { name: "Introduction" },
+        { name: "Methodology" },
+        { name: "Results" },
+        { name: "Discussion" },
+        { name: "Conclusion" },
+        { name: "References" },
+      ],
+    },
+    ru: {
+      label: 'ИМРАД',
+      description: 'Стандартная структура научной статьи',
+      sections: [
+        { name: "Аннотация (Abstract)" },
+        { name: "Ключевые слова (Keywords)" },
+        { name: "Введение (Introduction)" },
+        { name: "Методология (Methodology)" },
+        { name: "Результаты (Results)" },
+        { name: "Обсуждение (Discussion)" },
+        { name: "Заключение (Conclusion)" },
+        { name: "Список литературы (References)" },
+      ],
+    },
+  },
+  'literature-review': {
+    uz: {
+      label: 'Adabiyotlar sharhi',
+      description: "Mavjud tadqiqotlarni tahlil qilish",
+      sections: [
+        { name: "Annotatsiya (Abstract)" },
+        { name: "Kalit so'zlar (Keywords)" },
+        { name: "Kirish (Introduction)" },
+        { name: "Nazariy asos (Theoretical Framework)" },
+        { name: "Adabiyotlar sharhi (Literature Review)" },
+        { name: "Tanqidiy tahlil (Critical Analysis)" },
+        { name: "Muhokama (Discussion)" },
+        { name: "Xulosa (Conclusion)" },
+        { name: "Adabiyotlar (References)" },
+      ],
+    },
+    en: {
+      label: 'Literature Review',
+      description: 'Analysis of existing research',
+      sections: [
+        { name: "Abstract" },
+        { name: "Keywords" },
+        { name: "Introduction" },
+        { name: "Theoretical Framework" },
+        { name: "Literature Review" },
+        { name: "Critical Analysis" },
+        { name: "Discussion" },
+        { name: "Conclusion" },
+        { name: "References" },
+      ],
+    },
+    ru: {
+      label: 'Обзор литературы',
+      description: 'Анализ существующих исследований',
+      sections: [
+        { name: "Аннотация (Abstract)" },
+        { name: "Ключевые слова (Keywords)" },
+        { name: "Введение (Introduction)" },
+        { name: "Теоретическая основа (Theoretical Framework)" },
+        { name: "Обзор литературы (Literature Review)" },
+        { name: "Критический анализ (Critical Analysis)" },
+        { name: "Обсуждение (Discussion)" },
+        { name: "Заключение (Conclusion)" },
+        { name: "Список литературы (References)" },
+      ],
+    },
+  },
+  'case-study': {
+    uz: {
+      label: 'Keys-stadi',
+      description: "Aniq holatni chuqur o'rganish",
+      sections: [
+        { name: "Annotatsiya (Abstract)" },
+        { name: "Kalit so'zlar (Keywords)" },
+        { name: "Kirish (Introduction)" },
+        { name: "Kontekst va orqa fon (Background)" },
+        { name: "Keys tavsifi (Case Description)" },
+        { name: "Tahlil (Analysis)" },
+        { name: "Topilmalar (Findings)" },
+        { name: "Muhokama va tavsiyalar (Discussion)" },
+        { name: "Xulosa (Conclusion)" },
+        { name: "Adabiyotlar (References)" },
+      ],
+    },
+    en: {
+      label: 'Case Study',
+      description: 'In-depth study of a specific case',
+      sections: [
+        { name: "Abstract" },
+        { name: "Keywords" },
+        { name: "Introduction" },
+        { name: "Background" },
+        { name: "Case Description" },
+        { name: "Analysis" },
+        { name: "Findings" },
+        { name: "Discussion & Recommendations" },
+        { name: "Conclusion" },
+        { name: "References" },
+      ],
+    },
+    ru: {
+      label: 'Кейс-стади',
+      description: 'Углублённое изучение конкретного случая',
+      sections: [
+        { name: "Аннотация (Abstract)" },
+        { name: "Ключевые слова (Keywords)" },
+        { name: "Введение (Introduction)" },
+        { name: "Контекст (Background)" },
+        { name: "Описание кейса (Case Description)" },
+        { name: "Анализ (Analysis)" },
+        { name: "Результаты (Findings)" },
+        { name: "Обсуждение и рекомендации (Discussion)" },
+        { name: "Заключение (Conclusion)" },
+        { name: "Список литературы (References)" },
+      ],
+    },
+  },
+  argumentative: {
+    uz: {
+      label: 'Argumentativ',
+      description: "Muayyan nuqtai nazarni himoya qilish",
+      sections: [
+        { name: "Annotatsiya (Abstract)" },
+        { name: "Kalit so'zlar (Keywords)" },
+        { name: "Kirish va tezis (Introduction & Thesis)" },
+        { name: "Adabiyotlar sharhi (Literature Review)" },
+        { name: "Asosiy dalillar (Main Arguments)" },
+        { name: "Qarshi dalillar va javoblar (Counterarguments)" },
+        { name: "Muhokama (Discussion)" },
+        { name: "Xulosa (Conclusion)" },
+        { name: "Adabiyotlar (References)" },
+      ],
+    },
+    en: {
+      label: 'Argumentative',
+      description: 'Defending a specific position',
+      sections: [
+        { name: "Abstract" },
+        { name: "Keywords" },
+        { name: "Introduction & Thesis" },
+        { name: "Literature Review" },
+        { name: "Main Arguments" },
+        { name: "Counterarguments & Rebuttals" },
+        { name: "Discussion" },
+        { name: "Conclusion" },
+        { name: "References" },
+      ],
+    },
+    ru: {
+      label: 'Аргументативная',
+      description: 'Защита определённой позиции',
+      sections: [
+        { name: "Аннотация (Abstract)" },
+        { name: "Ключевые слова (Keywords)" },
+        { name: "Введение и тезис (Introduction & Thesis)" },
+        { name: "Обзор литературы (Literature Review)" },
+        { name: "Основные аргументы (Main Arguments)" },
+        { name: "Контраргументы и ответы (Counterarguments)" },
+        { name: "Обсуждение (Discussion)" },
+        { name: "Заключение (Conclusion)" },
+        { name: "Список литературы (References)" },
+      ],
+    },
+  },
+  theoretical: {
+    uz: {
+      label: 'Nazariy',
+      description: "Nazariy konsepsiyalarni tahlil qilish",
+      sections: [
+        { name: "Annotatsiya (Abstract)" },
+        { name: "Kalit so'zlar (Keywords)" },
+        { name: "Kirish (Introduction)" },
+        { name: "Nazariy asos (Theoretical Framework)" },
+        { name: "Konseptual tahlil (Conceptual Analysis)" },
+        { name: "Qiyosiy tahlil (Comparative Analysis)" },
+        { name: "Amaliy qo'llanilishi (Practical Implications)" },
+        { name: "Xulosa (Conclusion)" },
+        { name: "Adabiyotlar (References)" },
+      ],
+    },
+    en: {
+      label: 'Theoretical',
+      description: 'Analysis of theoretical concepts',
+      sections: [
+        { name: "Abstract" },
+        { name: "Keywords" },
+        { name: "Introduction" },
+        { name: "Theoretical Framework" },
+        { name: "Conceptual Analysis" },
+        { name: "Comparative Analysis" },
+        { name: "Practical Implications" },
+        { name: "Conclusion" },
+        { name: "References" },
+      ],
+    },
+    ru: {
+      label: 'Теоретическая',
+      description: 'Анализ теоретических концепций',
+      sections: [
+        { name: "Аннотация (Abstract)" },
+        { name: "Ключевые слова (Keywords)" },
+        { name: "Введение (Introduction)" },
+        { name: "Теоретическая основа (Theoretical Framework)" },
+        { name: "Концептуальный анализ (Conceptual Analysis)" },
+        { name: "Сравнительный анализ (Comparative Analysis)" },
+        { name: "Практическое применение (Practical Implications)" },
+        { name: "Заключение (Conclusion)" },
+        { name: "Список литературы (References)" },
+      ],
+    },
+  },
+  custom: {
+    uz: {
+      label: 'Maxsus',
+      description: "O'zingiz tuzilma yarating",
+      sections: [
+        { name: "Annotatsiya (Abstract)" },
+        { name: "Kalit so'zlar (Keywords)" },
+        { name: "Kirish (Introduction)" },
+        { name: "Xulosa (Conclusion)" },
+        { name: "Adabiyotlar (References)" },
+      ],
+    },
+    en: {
+      label: 'Custom',
+      description: 'Create your own structure',
+      sections: [
+        { name: "Abstract" },
+        { name: "Keywords" },
+        { name: "Introduction" },
+        { name: "Conclusion" },
+        { name: "References" },
+      ],
+    },
+    ru: {
+      label: 'Пользовательская',
+      description: 'Создайте свою структуру',
+      sections: [
+        { name: "Аннотация (Abstract)" },
+        { name: "Ключевые слова (Keywords)" },
+        { name: "Введение (Introduction)" },
+        { name: "Заключение (Conclusion)" },
+        { name: "Список литературы (References)" },
+      ],
+    },
+  },
 };
 
 const defaultSections: Section[] = [
@@ -259,6 +541,32 @@ export const useProjectStore = create<ProjectState>()(
           currentProject: {
             ...currentProject,
             sources: currentProject.sources.filter((s) => s.id !== id),
+            updatedAt: new Date(),
+          },
+        });
+      },
+
+      applyTemplate: (templateId: TemplateId) => {
+        const { currentProject } = get();
+        if (!currentProject) return;
+        const lang = currentProject.config.language || 'uz';
+        const template = articleTemplates[templateId]?.[lang];
+        if (!template) return;
+        const newSections: Section[] = template.sections.map((s, i) => ({
+          id: generateId(),
+          name: s.name,
+          notes: '',
+          content: '',
+          status: 'EMPTY' as SectionStatus,
+          summary: '',
+          order: i,
+        }));
+        set({
+          currentProject: {
+            ...currentProject,
+            config: { ...currentProject.config, templateId },
+            sections: newSections,
+            citations: [],
             updatedAt: new Date(),
           },
         });

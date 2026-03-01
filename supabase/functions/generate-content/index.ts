@@ -8,7 +8,6 @@ const corsHeaders = {
 
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY');
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-const SERPAPI_KEY = Deno.env.get('SERPAPI_KEY');
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // ─────────────────────────────────────────────
@@ -122,33 +121,56 @@ async function searchCrossRef(query: string, limit = 8): Promise<AcademicSource[
   }
 }
 
-// SerpAPI - existing, improved with academic focus
-async function searchWithSerpAPI(query: string, domain: string): Promise<AcademicSource[]> {
-  if (!SERPAPI_KEY) return [];
+// Gemini Google Search grounding - uses Gemini's built-in web search
+async function searchWithGemini(query: string, domain: string): Promise<AcademicSource[]> {
+  if (!GEMINI_API_KEY) return [];
 
   try {
-    const searchQuery = `${query} ${domain} academic research site:scholar.google.com OR site:researchgate.net OR site:academia.edu`;
-    const url = `https://serpapi.com/search.json?q=${encodeURIComponent(searchQuery)}&api_key=${SERPAPI_KEY}&num=10`;
+    const searchQuery = `${query} ${domain} academic research papers`;
+    console.log('Searching with Gemini Google Search:', searchQuery);
 
-    console.log('Searching SerpAPI:', searchQuery);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-    const response = await fetch(url);
-    if (!response.ok) return [];
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{ text: `Find 8-10 real academic research papers about: "${searchQuery}". For each paper, provide: title, authors, year, a brief summary, and URL or DOI if available. Respond ONLY with a JSON array like: [{"title":"...","authors":"...","year":"...","abstract":"...","url":"...","doi":"..."}]. No other text.` }]
+        }],
+        tools: [{ google_search: {} }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 4096,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Gemini Search error:', response.status);
+      return [];
+    }
 
     const data = await response.json();
-    const results = data.organic_results || [];
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    return results.slice(0, 8).map((r: any) => ({
-      title: r.title || '',
-      authors: 'Web source',
-      year: r.date?.match(/\d{4}/)?.[0] || 'n.d.',
-      abstract: r.snippet || '',
-      url: r.link || '',
-      doi: undefined,
+    // Parse JSON from response
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const papers = JSON.parse(jsonMatch[0]);
+    return papers.slice(0, 8).map((p: any) => ({
+      title: p.title || '',
+      authors: p.authors || 'Unknown',
+      year: p.year || 'n.d.',
+      abstract: p.abstract || p.summary || '',
+      url: p.url || '',
+      doi: p.doi || undefined,
       citationCount: 0,
     }));
   } catch (error) {
-    console.error('SerpAPI failed:', error);
+    console.error('Gemini Search failed:', error);
     return [];
   }
 }
@@ -185,11 +207,11 @@ async function getAcademicSources(
   semanticResults.forEach(addIfNew);
   crossrefResults.forEach(addIfNew);
 
-  // If not enough academic sources, fall back to SerpAPI
+  // If not enough academic sources, fall back to Gemini Google Search
   if (allSources.length < 5) {
-    const serpResults = await searchWithSerpAPI(query, domain);
-    serpResults.forEach(addIfNew);
-    console.log(`Added ${serpResults.length} SerpAPI results as fallback`);
+    const geminiResults = await searchWithGemini(query, domain);
+    geminiResults.forEach(addIfNew);
+    console.log(`Added ${geminiResults.length} Gemini Search results as fallback`);
   }
 
   // Sort by citation count (most cited first) then by year (newest first)
@@ -804,6 +826,96 @@ Respond with ONLY a JSON array of title strings.`;
         regenInstructions += `\n\nUSER REQUESTED CHANGES (apply these precisely): ${userInstruction}`;
       }
 
+      // ─── ABSTRACT (no citations) ───
+      const isAbstract = ['abstract', 'annotatsiya', 'аннотация', 'abstrakt'].some(
+        term => sectionName?.toLowerCase().includes(term)
+      );
+
+      if (isAbstract) {
+        let systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
+Write in ${langName} using ${styleMode} style.
+
+ABSTRACT RULES:
+- Write ONLY in ${langName}
+- This is an ABSTRACT for the article titled: "${title}"
+- Approximately ${Math.min(wordTarget, 300)} words (abstracts are concise)
+- NO citations [1], [2] or references — abstracts NEVER contain references
+- NO bibliography or source list
+- Summarize the research problem, methodology, key findings, and conclusion
+- Write as a single cohesive paragraph or 2-3 short paragraphs
+- Use ${academicLevel}-level academic language
+- Domain: ${domain}`;
+
+        if (humanize) {
+          systemPrompt += `\n\nWRITING STYLE: Vary sentence length, use active voice predominantly, avoid AI clichés.`;
+        }
+
+        const userPrompt = `Write an abstract for: "${title}"
+Domain: ${domain}, Level: ${academicLevel}
+Target: ${Math.min(wordTarget, 300)} words
+IMPORTANT: Do NOT include any citations [1], [2] or references. This is an abstract.${priorContext}${regenInstructions}`;
+
+        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.7, 2000);
+
+        // Strip any citations that leaked through
+        content = content.replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+
+        if (humanize) {
+          content = await humanizeContent(content, language);
+          content = content.replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+        }
+
+        const summary = content.substring(0, 200) + '...';
+
+        return new Response(JSON.stringify({ content, summary, citations: [], sourcesMetadata: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // ─── KEYWORDS (special format) ───
+      const isKeywords = ['keyword', 'kalit', 'ключев'].some(
+        term => sectionName?.toLowerCase().includes(term)
+      );
+
+      if (isKeywords) {
+        const systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
+Generate a professional keywords section for an academic article.
+
+KEYWORDS RULES:
+- Write ONLY in ${langName}
+- Return ONLY keywords separated by semicolons (;)
+- Generate 5-8 relevant academic keywords/key phrases
+- Keywords should reflect the core concepts of the article
+- NO sentences, NO paragraphs, NO explanations, NO citations
+- NO numbered lists, NO bullet points
+- Format example: "keyword one; keyword two; keyword three; keyword four"
+- Each keyword can be 1-3 words, like professional academic articles
+- Keywords must be relevant to domain: ${domain}`;
+
+        const userPrompt = `Generate professional academic keywords for: "${title}"
+Domain: ${domain}, Level: ${academicLevel}
+Return ONLY keywords separated by semicolons. Nothing else.${regenInstructions}`;
+
+        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.5, 500);
+
+        // Clean up: remove any citations, bullet points, numbering
+        content = content.replace(/\[\d+\]/g, '');
+        content = content.replace(/^\s*[-*•\d.]+\s*/gm, '');
+        content = content.replace(/^(keywords?|kalit\s*so'zlar|ключевые\s*слова)\s*:?\s*/i, '');
+        content = content.trim();
+
+        // If the response came as newline-separated, convert to semicolons
+        if (content.includes('\n') && !content.includes(';')) {
+          content = content.split('\n').map(l => l.trim()).filter(Boolean).join('; ');
+        }
+
+        const summary = content;
+
+        return new Response(JSON.stringify({ content, summary, citations: [], sourcesMetadata: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       // ─── CONCLUSION (no citations) ───
       if (isConclusion) {
         let systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
@@ -871,17 +983,29 @@ NO CITATIONS. Summarize findings and provide recommendations.`;
 
       // Step 3: Generate content with GROQ using real sources
       const systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
-Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
+Write in ${langName} using ${citationStyle} citation format. Writing style: ${styleMode}.
 
 CRITICAL FORMAT RULES:
 - Write ONLY in ${langName}
-- RELEVANT to "${sectionName}" and title "${title}"
+- This section is "${sectionName}" for the article: "${title}"
 - Use citations ONLY as numbers [${startNum}], [${startNum + 1}], etc. in the text
 - DO NOT include full reference text in the main content
 - Approximately ${wordTarget} words
 - ${domainCitations}
 - EVERY citation [N] MUST correspond to a real source from the list provided
 - Use information from the source abstracts to write accurate, factual content
+
+ANTI-REPETITION RULES (critical):
+- Do NOT repeat ideas, sentences, or phrases from prior sections (provided below)
+- Each section must present UNIQUE content and analysis
+- Do NOT restate the article's purpose/goals if already covered in prior sections
+- Avoid using the same opening patterns across sections
+- If prior sections already discussed a concept, reference it briefly ("As discussed earlier...") rather than re-explaining
+
+PARAMETER COMPLIANCE:
+- Academic level "${academicLevel}" means: ${academicLevel === 'bachelor' ? 'clear explanations, foundational concepts, accessible language' : academicLevel === 'master' ? 'deeper analysis, methodological rigor, critical evaluation' : 'original contribution, advanced methodology, novel theoretical frameworks'}
+- Domain "${domain}" means: focus content specifically on ${domain} concepts, terminology, and frameworks
+- Style "${styleMode}" means: ${styleMode === 'formal' ? 'strict academic tone, third person, passive voice acceptable' : styleMode === 'natural' ? 'readable academic tone, occasional first person, active voice preferred' : 'refined professional tone, precise language, elegant phrasing'}
 
 AT THE VERY END of your response, add "---CITATIONS---" and list each citation used:
 [${startNum}] Full reference: Author(s), Title, Year, DOI/URL
@@ -908,7 +1032,10 @@ IMPORTANT:
 1. In the main text, only use [number] citations
 2. Base your content on the REAL information from the sources above
 3. After "---CITATIONS---", list each citation with full reference details
-4. Every [number] in the text MUST have a corresponding entry in citations`;
+4. Every [number] in the text MUST have a corresponding entry in citations
+5. Do NOT repeat content already covered in prior sections — produce only NEW analysis for "${sectionName}"
+6. Match the academic level (${academicLevel}) in depth and complexity
+7. Write exclusively in ${langName}`;
 
       console.log('Step 2: Generating content with GROQ...');
       let rawContent = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.7, 4000);

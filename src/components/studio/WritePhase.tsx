@@ -174,6 +174,10 @@ export const WritePhase = () => {
     try {
       setGenerationProgress(t.progressGenerating);
 
+      // Combine section notes with user instruction for richer context
+      const sectionNotes = section?.notes?.trim();
+      const combinedInstruction = [sectionNotes, userInstruction].filter(Boolean).join('. ') || undefined;
+
       const requestBody: any = {
         type: isReferences ? 'references' : 'section',
         sectionName: section?.name,
@@ -184,7 +188,7 @@ export const WritePhase = () => {
         },
         priorSummaries,
         regenMode,
-        userInstruction: userInstruction || undefined,
+        userInstruction: combinedInstruction,
         targetWordCount: targetSectionWords,
         startingCitationNumber,
         isConclusion,
@@ -782,14 +786,21 @@ export const WritePhase = () => {
                           )}
                         </div>
 
-                        {/* Section notes */}
+                        {/* Section notes - fed into generation */}
                         <div>
-                          <label className="text-sm text-muted-foreground mb-2 block">{t.notes}</label>
+                          <div className="flex items-center gap-2 mb-2">
+                            <label className="text-sm text-muted-foreground">{t.notes}</label>
+                            {section.notes?.trim() && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                                {lang === 'uz' ? "AI ga yuboriladi" : lang === 'ru' ? "Учитывается ИИ" : "Sent to AI"}
+                              </span>
+                            )}
+                          </div>
                           <input
                             type="text"
                             value={section.notes}
                             onChange={(e) => updateSection(section.id, { notes: e.target.value })}
-                            placeholder={t.notesPlaceholder}
+                            placeholder={lang === 'uz' ? "AI ga ko'rsatma: masalan, 'Statistik ma'lumotlar qo'shing', 'Qisqaroq yozing'..." : lang === 'ru' ? "Инструкция для ИИ: напр., 'Добавьте статистику', 'Короче'..." : "Instructions for AI: e.g., 'Add statistics', 'Keep it shorter'..."}
                             className="w-full bg-secondary/30 border border-border rounded-xl px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm"
                           />
                         </div>
