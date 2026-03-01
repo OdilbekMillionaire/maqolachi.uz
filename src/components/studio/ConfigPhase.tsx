@@ -155,7 +155,7 @@ export const ConfigPhase = () => {
           <OnboardingTour />
 
           {/* Language selection */}
-          <div className="glass-panel p-4 sm:p-6" data-tour="language">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <Globe className="w-5 h-5 text-primary" />
               <h2 className="font-semibold text-sm sm:text-base">{t.language}</h2>
@@ -180,7 +180,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Domain selection */}
-          <div className="glass-panel p-4 sm:p-6" data-tour="domain">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.domain}</h2>
@@ -206,7 +206,7 @@ export const ConfigPhase = () => {
           
           {/* Academic level and citation style */}
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="glass-panel p-4 sm:p-6" data-tour="level">
+            <div className="glass-panel p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <GraduationCap className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.level}</h2>
@@ -232,7 +232,7 @@ export const ConfigPhase = () => {
               </div>
             </div>
             
-            <div className="glass-panel p-4 sm:p-6" data-tour="citation">
+            <div className="glass-panel p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Quote className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold">{t.citationStyle}</h2>
@@ -263,7 +263,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Writing style */}
-          <div className="glass-panel p-4 sm:p-6" data-tour="style">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Layout className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.writingStyle}</h2>
@@ -338,7 +338,7 @@ export const ConfigPhase = () => {
           </div>
           
           {/* Main idea input */}
-          <div className="glass-panel p-4 sm:p-6" data-tour="main-idea">
+          <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-5 h-5 text-primary" />
               <h2 className="font-semibold">{t.mainIdea}</h2>
