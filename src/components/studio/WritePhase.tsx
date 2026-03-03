@@ -33,6 +33,53 @@ import { getTranslation, Language } from "@/lib/translations";
 import { exportToDoc, countWords } from "@/lib/docExport";
 import { ArticlePreview } from "./ArticlePreview";
 
+// ─── Client-side content cleaning (defense-in-depth) ───
+function clientCleanContent(content: string): string {
+  let result = content;
+
+  // Strip markdown headers
+  result = result.replace(/^#{1,6}\s+/gm, '');
+
+  // Strip bold/italic markers
+  result = result.replace(/\*\*\*(.*?)\*\*\*/g, '$1');
+  result = result.replace(/\*\*(.*?)\*\*/g, '$1');
+  result = result.replace(/(?<!\[)\*([^*\n]+)\*(?!\])/g, '$1');
+  result = result.replace(/___(.*?)___/g, '$1');
+  result = result.replace(/__([^_]+)__/g, '$1');
+
+  // Strip horizontal rules
+  result = result.replace(/^[-*_]{3,}\s*$/gm, '');
+
+  // Fix citation spacing: "word [1]" -> "word[1]"
+  result = result.replace(/\s+\[(\d+)\]/g, '[$1]');
+
+  // Remove AI meta-commentary
+  result = result.replace(/^(Here is|Here's|Below is|I have written|I will write|Let me write|Sure[,!]?).*$/gm, '');
+
+  // Remove markdown links but keep text
+  result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+  // Deduplicate paragraphs
+  const paragraphs = result.split('\n\n');
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(trimmed);
+  }
+  result = unique.join('\n\n');
+
+  // Clean up extra whitespace
+  result = result.replace(/\n{3,}/g, '\n\n');
+  result = result.replace(/[ \t]{2,}/g, ' ');
+
+  return result.trim();
+}
+
 const getStatusBadge = (status: SectionStatus, t: ReturnType<typeof getTranslation>) => {
   const statusMap: Record<SectionStatus, string> = {
     GENERATED: t.statusGenerated,
@@ -213,10 +260,12 @@ export const WritePhase = () => {
       await new Promise(resolve => setTimeout(resolve, 300));
 
       if (data?.content) {
+        // Client-side cleaning: strip markdown, fix citation spacing, deduplicate
+        const cleanedContent = clientCleanContent(data.content);
         updateSection(sectionId, {
-          content: data.content,
+          content: cleanedContent,
           status: "GENERATED",
-          summary: data.summary || data.content.substring(0, 200) + '...'
+          summary: data.summary || cleanedContent.substring(0, 200) + '...'
         });
 
         if (data.citations && data.citations.length > 0) {
@@ -228,7 +277,7 @@ export const WritePhase = () => {
           addCitations(citationsWithSectionId);
         }
 
-        const wc = data.content.trim().split(/\s+/).length;
+        const wc = cleanedContent.trim().split(/\s+/).length;
         const citCount = data.citations?.length || 0;
         toast.success(
           `${t.sectionGenerated} (${wc} ${lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}${citCount > 0 ? `, ${citCount} ${lang === 'uz' ? "manba" : lang === 'ru' ? "ист." : "refs"}` : ''})`
@@ -324,7 +373,7 @@ export const WritePhase = () => {
 
       // Wait between sections to let the store settle and avoid rate limits
       if (i < generableSections.length - 1 && !batchCancelRef.current) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 4000));
       }
     }
 

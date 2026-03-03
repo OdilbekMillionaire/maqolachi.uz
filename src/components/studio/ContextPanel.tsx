@@ -14,7 +14,11 @@ import {
   Loader2,
   ExternalLink,
   ShieldCheck,
-  Shield
+  Shield,
+  FileText,
+  Target,
+  MessageSquare,
+  GraduationCap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Source } from "@/store/projectStore";
@@ -23,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { getTranslation, Language } from "@/lib/translations";
 import { toast } from "sonner";
+import { countWords } from "@/lib/docExport";
 
 interface ContextPanelProps {
   isOpen: boolean;
@@ -45,8 +50,14 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
 
   const config = currentProject?.config;
   const sources = currentProject?.sources || [];
+  const sections = currentProject?.sections || [];
+  const citations = currentProject?.citations || [];
   const lang = (config?.language || 'uz') as Language;
   const t = getTranslation(lang);
+
+  const totalWords = countWords(sections);
+  const completedSections = sections.filter(s => s.status === 'GENERATED' || s.status === 'EDITED').length;
+  const verifiedCitations = citations.filter((c: any) => c.verified).length;
 
   // Resolve DOI to get metadata
   const resolveDOI = async (doi: string): Promise<ResolvedSource | null> => {
@@ -80,7 +91,6 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
     const isDoi = input.startsWith("10.") || input.includes("doi.org");
     const isUrl = input.startsWith("http");
 
-    // If DOI, resolve metadata
     if (isDoi) {
       setIsResolving(true);
       const resolved = await resolveDOI(input);
@@ -112,11 +122,10 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
     setNewSourceUrl("");
   };
 
-  const contextLabel = lang === 'uz' ? 'Kontekst' : lang === 'ru' ? 'Контекст' : 'Context';
-  const settingsLabel = lang === 'uz' ? 'Sozlamalar' : lang === 'ru' ? 'Настройки' : 'Settings';
-  const aiModeLabel = lang === 'uz' ? 'AI rejimi' : lang === 'ru' ? 'Режим ИИ' : 'AI Mode';
-  const fastLabel = lang === 'uz' ? 'Tez' : lang === 'ru' ? 'Быстро' : 'Fast';
-  const qualityLabel = lang === 'uz' ? 'Sifatli' : lang === 'ru' ? 'Качество' : 'Quality';
+  // Labels
+  const contextLabel = lang === 'uz' ? 'Kontekst va sozlamalar' : lang === 'ru' ? 'Контекст и настройки' : 'Context & Settings';
+  const settingsLabel = lang === 'uz' ? 'Loyiha haqida' : lang === 'ru' ? 'О проекте' : 'Project Info';
+  const statsLabel = lang === 'uz' ? 'Statistika' : lang === 'ru' ? 'Статистика' : 'Statistics';
   const sourcesLabel = lang === 'uz' ? 'Manbalar' : lang === 'ru' ? 'Источники' : 'Sources';
   const sourcesDesc = lang === 'uz'
     ? "URL, DOI yoki havola qo'shing. DOI kiritilsa, manba avtomatik tekshiriladi."
@@ -128,13 +137,32 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
   const langLabel = lang === 'uz' ? 'Til' : lang === 'ru' ? 'Язык' : 'Language';
   const domainLabel = lang === 'uz' ? 'Soha' : lang === 'ru' ? 'Область' : 'Domain';
   const citationLabel = lang === 'uz' ? 'Iqtibos' : lang === 'ru' ? 'Цитирование' : 'Citation';
+  const levelLabel = lang === 'uz' ? 'Daraja' : lang === 'ru' ? 'Уровень' : 'Level';
+  const styleLabel = lang === 'uz' ? 'Uslub' : lang === 'ru' ? 'Стиль' : 'Style';
+  const wordsLabel = lang === 'uz' ? "so'z" : lang === 'ru' ? 'слов' : 'words';
+  const sectionsLabel = lang === 'uz' ? "bo'lim" : lang === 'ru' ? 'разделов' : 'sections';
+  const refsLabel = lang === 'uz' ? 'manba' : lang === 'ru' ? 'источников' : 'references';
+  const completedLabel = lang === 'uz' ? 'tayyor' : lang === 'ru' ? 'готово' : 'done';
+  const genSettingsLabel = lang === 'uz' ? "Generatsiya sozlamalari" : lang === 'ru' ? "Настройки генерации" : "Generation Settings";
+
+  const styleNames: Record<string, Record<string, string>> = {
+    formal: { uz: "Rasmiy", ru: "Формальный", en: "Formal" },
+    natural: { uz: "Tabiiy", ru: "Естественный", en: "Natural" },
+    polished: { uz: "Sayqallangan", ru: "Отточенный", en: "Polished" },
+  };
+
+  const levelNames: Record<string, Record<string, string>> = {
+    bachelor: { uz: "Bakalavr", ru: "Бакалавр", en: "Bachelor" },
+    master: { uz: "Magistr", ru: "Магистр", en: "Master" },
+    phd: { uz: "PhD", ru: "PhD", en: "PhD" },
+  };
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.aside
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 320, opacity: 1 }}
+          animate={{ width: 340, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
           className="h-full border-l border-border bg-card/50 backdrop-blur-md overflow-hidden flex flex-col"
@@ -143,7 +171,7 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
           <div className="flex items-center justify-between p-4 border-b border-border">
             <div className="flex items-center gap-2">
               <Settings className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold">{contextLabel}</h2>
+              <h2 className="font-semibold text-sm">{contextLabel}</h2>
             </div>
             <button
               onClick={onClose}
@@ -154,105 +182,166 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+
+            {/* Statistics overview */}
+            <div>
+              <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
+                {statsLabel}
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-secondary/30 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-foreground">{totalWords.toLocaleString()}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">{wordsLabel}</p>
+                </div>
+                <div className="bg-secondary/30 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-foreground">{completedSections}/{sections.length}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">{sectionsLabel} {completedLabel}</p>
+                </div>
+                <div className="bg-secondary/30 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-foreground">{citations.length}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">{refsLabel}</p>
+                </div>
+                <div className="bg-secondary/30 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-emerald-500">{verifiedCitations}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase">DOI</p>
+                </div>
+              </div>
+
+              {/* Word count progress bar */}
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                  <span>{lang === 'uz' ? "So'z soni maqsad" : lang === 'ru' ? "Цель по словам" : "Word target"}</span>
+                  <span className={cn(
+                    "font-medium",
+                    totalWords >= 4000 && totalWords <= 6000 ? "text-emerald-500" : totalWords > 6000 ? "text-amber-500" : "text-muted-foreground"
+                  )}>
+                    {totalWords.toLocaleString()} / 5,000
+                  </span>
+                </div>
+                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      totalWords >= 4000 && totalWords <= 6000 ? "bg-emerald-500" : totalWords > 6000 ? "bg-amber-500" : "bg-primary"
+                    )}
+                    style={{ width: `${Math.min((totalWords / 5000) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Project settings summary */}
             <div>
               <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
                 {settingsLabel}
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <div className="flex items-center gap-3 text-sm">
-                  <Globe className="w-4 h-4 text-muted-foreground" />
+                  <Globe className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   <span className="text-muted-foreground">{langLabel}:</span>
                   <span className="text-foreground font-medium">
                     {config?.language === "uz" ? "O'zbek" : config?.language === "en" ? "English" : "Русский"}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
-                  <BookOpen className="w-4 h-4 text-muted-foreground" />
+                  <BookOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   <span className="text-muted-foreground">{domainLabel}:</span>
                   <span className="text-foreground font-medium capitalize">
                     {config?.domain}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
-                  <Quote className="w-4 h-4 text-muted-foreground" />
+                  <GraduationCap className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-muted-foreground">{levelLabel}:</span>
+                  <span className="text-foreground font-medium">
+                    {levelNames[config?.academicLevel || 'bachelor']?.[lang] || config?.academicLevel}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Quote className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   <span className="text-muted-foreground">{citationLabel}:</span>
                   <span className="text-foreground font-medium uppercase">
                     {config?.citationStyle}
                   </span>
                 </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-muted-foreground">{styleLabel}:</span>
+                  <span className="text-foreground font-medium">
+                    {styleNames[config?.styleMode || 'formal']?.[lang] || config?.styleMode}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Humanization toggle */}
+            {/* Generation settings */}
             <div>
               <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
-                {t.humanizationLabel}
+                {genSettingsLabel}
               </h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                {t.humanizationDesc}
-              </p>
-              <button
-                onClick={() => setHumanizeContent(!humanizeContent)}
-                className={cn(
-                  "w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all",
-                  humanizeContent
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {humanizeContent
-                      ? (lang === 'uz' ? 'Yoqilgan' : lang === 'ru' ? 'Включено' : 'Enabled')
-                      : (lang === 'uz' ? "O'chirilgan" : lang === 'ru' ? 'Отключено' : 'Disabled')
-                    }
-                  </span>
-                </div>
-                <div className={cn(
-                  "w-10 h-6 rounded-full p-1 transition-colors",
-                  humanizeContent ? "bg-primary" : "bg-muted"
-                )}>
-                  <div className={cn(
-                    "w-4 h-4 rounded-full bg-white transition-transform",
-                    humanizeContent && "translate-x-4"
-                  )} />
-                </div>
-              </button>
-            </div>
 
-            {/* Model mode toggle */}
-            <div>
-              <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
-                {aiModeLabel}
-              </h3>
-              <div className="flex gap-2">
+              {/* Humanization toggle */}
+              <div className="mb-3">
+                <p className="text-xs text-muted-foreground mb-2">
+                  {t.humanizationDesc}
+                </p>
                 <button
-                  onClick={() => updateConfig({ modelMode: "fast" })}
+                  onClick={() => setHumanizeContent(!humanizeContent)}
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-all text-sm",
-                    config?.modelMode === "fast"
+                    "w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all",
+                    humanizeContent
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
                   )}
                 >
-                  <Zap className="w-4 h-4" />
-                  {fastLabel}
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="w-4 h-4" />
+                    <span className="text-sm font-medium">
+                      {t.humanizationLabel}
+                    </span>
+                  </div>
+                  <div className={cn(
+                    "w-10 h-6 rounded-full p-1 transition-colors",
+                    humanizeContent ? "bg-primary" : "bg-muted"
+                  )}>
+                    <div className={cn(
+                      "w-4 h-4 rounded-full bg-white transition-transform",
+                      humanizeContent && "translate-x-4"
+                    )} />
+                  </div>
                 </button>
-                <button
-                  onClick={() => updateConfig({ modelMode: "quality" })}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-all text-sm",
-                    config?.modelMode === "quality"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
-                  )}
-                >
-                  <Sliders className="w-4 h-4" />
-                  {qualityLabel}
-                </button>
+              </div>
+
+              {/* Writing style quick switch */}
+              <div className="mb-3">
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  {lang === 'uz' ? "Yozish uslubi" : lang === 'ru' ? "Стиль письма" : "Writing style"}
+                </p>
+                <div className="flex gap-1.5">
+                  {(['formal', 'natural', 'polished'] as const).map(style => (
+                    <button
+                      key={style}
+                      onClick={() => updateConfig({ styleMode: style })}
+                      className={cn(
+                        "flex-1 px-2 py-2 rounded-lg border text-xs font-medium transition-all",
+                        config?.styleMode === style
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
+                      )}
+                    >
+                      {styleNames[style]?.[lang] || style}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* AI Engine info */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                <Zap className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                <span className="text-[11px] text-emerald-600">
+                  {lang === 'uz' ? "Gemini 2.0 Flash + Google Search" : lang === 'ru' ? "Gemini 2.0 Flash + Google Поиск" : "Gemini 2.0 Flash + Google Search"}
+                </span>
               </div>
             </div>
 
@@ -337,7 +426,7 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-6 text-muted-foreground text-sm">
+                <div className="text-center py-4 text-muted-foreground text-sm">
                   {noSourcesLabel}
                 </div>
               )}

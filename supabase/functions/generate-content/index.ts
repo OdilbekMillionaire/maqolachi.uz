@@ -6,9 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY');
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // ─────────────────────────────────────────────
 // TYPES
@@ -183,13 +181,14 @@ async function getAcademicSources(
 ): Promise<{ sources: AcademicSource[]; context: string; citations: CitationRef[] }> {
   const searchQuery = `${query} ${sectionName}`;
 
-  // Run Semantic Scholar and CrossRef in parallel
-  const [semanticResults, crossrefResults] = await Promise.all([
+  // Run all three in parallel for maximum source coverage
+  const [semanticResults, crossrefResults, geminiResults] = await Promise.all([
     searchSemanticScholar(searchQuery, domain, 10),
     searchCrossRef(`${searchQuery} ${domain}`, 8),
+    searchWithGemini(query, domain),
   ]);
 
-  console.log(`Semantic Scholar: ${semanticResults.length}, CrossRef: ${crossrefResults.length}`);
+  console.log(`Semantic Scholar: ${semanticResults.length}, CrossRef: ${crossrefResults.length}, Gemini: ${geminiResults.length}`);
 
   // Merge and deduplicate by title similarity
   const allSources: AcademicSource[] = [];
@@ -203,16 +202,10 @@ async function getAcademicSources(
     }
   };
 
-  // Prefer Semantic Scholar (better academic coverage), then CrossRef (has DOIs)
+  // Prefer Semantic Scholar (better academic coverage), then CrossRef (has DOIs), then Gemini
   semanticResults.forEach(addIfNew);
   crossrefResults.forEach(addIfNew);
-
-  // If not enough academic sources, fall back to Gemini Google Search
-  if (allSources.length < 5) {
-    const geminiResults = await searchWithGemini(query, domain);
-    geminiResults.forEach(addIfNew);
-    console.log(`Added ${geminiResults.length} Gemini Search results as fallback`);
-  }
+  geminiResults.forEach(addIfNew);
 
   // Sort by citation count (most cited first) then by year (newest first)
   allSources.sort((a, b) => {
@@ -251,103 +244,209 @@ function formatSourceAsCitation(source: AcademicSource): string {
 }
 
 // ─────────────────────────────────────────────
-// 2. AI CALLING FUNCTIONS
+// 2. GEMINI — PRIMARY AI ENGINE
 // ─────────────────────────────────────────────
 
-async function callGroqWithRetry(
+async function callGeminiWithRetry(
   systemPrompt: string,
   userPrompt: string,
-  model: string,
-  temperature: number,
-  maxTokens: number,
-  maxRetries = 3
+  temperature = 0.7,
+  maxTokens = 8192,
+  useGrounding = false,
+  maxRetries = 4
 ): Promise<string> {
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const response = await fetch(GROQ_BASE_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-          'Content-Type': 'application/json',
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+      const body: any = {
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
         },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
+        contents: [{
+          role: 'user',
+          parts: [{ text: userPrompt }]
+        }],
+        generationConfig: {
           temperature,
-          max_tokens: maxTokens,
-        }),
+          maxOutputTokens: maxTokens,
+        }
+      };
+
+      if (useGrounding) {
+        body.tools = [{ google_search: {} }];
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
 
       if (response.status === 429) {
-        const waitTime = Math.pow(2, attempt) * 2000;
-        lastError = new HttpError(429, 'GROQ rate limited', `Retry ${attempt + 1}/${maxRetries}`);
-        console.log(`GROQ 429, waiting ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+        const waitTime = Math.pow(2, attempt) * 3000;
+        lastError = new HttpError(429, 'Gemini rate limited', `Retry ${attempt + 1}/${maxRetries}`);
+        console.log(`Gemini 429, waiting ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(r => setTimeout(r, waitTime));
         continue;
       }
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new HttpError(response.status, `GROQ error: ${response.status}`, errorText);
+        throw new HttpError(response.status, `Gemini error: ${response.status}`, errorText);
       }
 
       const data = await response.json();
-      return data.choices?.[0]?.message?.content ?? '';
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      if (!text) {
+        throw new Error('Empty response from Gemini');
+      }
+
+      return text;
     } catch (error) {
       lastError = error as Error;
       if (attempt < maxRetries - 1) {
-        const waitTime = Math.pow(2, attempt) * 2000;
+        const waitTime = Math.pow(2, attempt) * 3000;
+        console.log(`Gemini error, retrying in ${waitTime}ms...`);
         await new Promise(r => setTimeout(r, waitTime));
       }
     }
   }
 
-  throw lastError || new Error('GROQ failed after retries');
-}
-
-async function callGemini(prompt: string, systemPrompt: string, useGrounding = false): Promise<string> {
-  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-  const body: any = {
-    contents: [{
-      role: 'user',
-      parts: [{ text: `${systemPrompt}\n\n${prompt}` }]
-    }],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 8192,
-    }
-  };
-
-  if (useGrounding) {
-    body.tools = [{ google_search: {} }];
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Gemini error:', response.status, errorText);
-    throw new Error(`Gemini error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  throw lastError || new Error('Gemini failed after retries');
 }
 
 // ─────────────────────────────────────────────
-// 3. HUMANIZATION PIPELINE
+// 3. CONTENT CLEANING PIPELINE
+// ─────────────────────────────────────────────
+
+// Strip ALL markdown formatting from generated content
+function stripMarkdown(content: string): string {
+  let result = content;
+
+  // Remove markdown headers (# ## ### etc.)
+  result = result.replace(/^#{1,6}\s+/gm, '');
+
+  // Remove bold/italic markers
+  result = result.replace(/\*\*\*(.*?)\*\*\*/g, '$1');
+  result = result.replace(/\*\*(.*?)\*\*/g, '$1');
+  result = result.replace(/\*(.*?)\*/g, '$1');
+  result = result.replace(/___(.*?)___/g, '$1');
+  result = result.replace(/__(.*?)__/g, '$1');
+
+  // Remove horizontal rules
+  result = result.replace(/^[-*_]{3,}\s*$/gm, '');
+
+  // Remove markdown links but keep text: [text](url) -> text
+  result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+  // Remove code blocks
+  result = result.replace(/```[\s\S]*?```/g, '');
+  result = result.replace(/`([^`]+)`/g, '$1');
+
+  // Remove blockquotes
+  result = result.replace(/^>\s+/gm, '');
+
+  // Remove bullet/list markers that AI adds
+  result = result.replace(/^[-*+]\s+/gm, '');
+
+  // Remove extra blank lines (3+ consecutive newlines -> 2)
+  result = result.replace(/\n{3,}/g, '\n\n');
+
+  return result.trim();
+}
+
+// Fix citation spacing: "word [1]" -> "word[1]"
+function fixCitationSpacing(content: string): string {
+  // Remove space before citation numbers
+  return content.replace(/\s+\[(\d+)\]/g, '[$1]');
+}
+
+// Deduplicate repeated paragraphs
+function deduplicateParagraphs(content: string): string {
+  const paragraphs = content.split('\n\n');
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+
+    // Normalize for comparison: lowercase, remove extra spaces
+    const normalized = trimmed.toLowerCase().replace(/\s+/g, ' ');
+
+    // Check for exact duplicates
+    if (seen.has(normalized)) {
+      console.log('Removed duplicate paragraph');
+      continue;
+    }
+
+    // Check for near-duplicates (>80% overlap with any existing paragraph)
+    let isDuplicate = false;
+    for (const existing of seen) {
+      if (existing.length > 50 && normalized.length > 50) {
+        const overlap = computeOverlap(normalized, existing);
+        if (overlap > 0.80) {
+          console.log(`Removed near-duplicate paragraph (${Math.round(overlap * 100)}% overlap)`);
+          isDuplicate = true;
+          break;
+        }
+      }
+    }
+
+    if (!isDuplicate) {
+      seen.add(normalized);
+      unique.push(trimmed);
+    }
+  }
+
+  return unique.join('\n\n');
+}
+
+// Simple overlap computation using shared word sequences
+function computeOverlap(a: string, b: string): number {
+  const wordsA = a.split(/\s+/);
+  const wordsB = new Set(b.split(/\s+/));
+  let shared = 0;
+  for (const word of wordsA) {
+    if (wordsB.has(word)) shared++;
+  }
+  return shared / Math.max(wordsA.length, 1);
+}
+
+// Full content cleaning pipeline — runs after every generation
+function cleanGeneratedContent(content: string): string {
+  let result = content;
+
+  // 1. Strip markdown
+  result = stripMarkdown(result);
+
+  // 2. Fix citation spacing
+  result = fixCitationSpacing(result);
+
+  // 3. Deduplicate paragraphs
+  result = deduplicateParagraphs(result);
+
+  // 4. Remove AI meta-commentary that leaked
+  result = result.replace(/^(Here is|Here's|Below is|I have written|I will write|Let me write|Sure[,!]?).*$/gm, '');
+
+  // 5. Remove "Section:", "Title:" prefixes AI sometimes adds
+  result = result.replace(/^(Section|Title|Bo['']lim|Раздел)\s*:\s*/im, '');
+
+  // 6. Clean up extra whitespace
+  result = result.replace(/\n{3,}/g, '\n\n');
+  result = result.replace(/[ \t]{2,}/g, ' ');
+
+  return result.trim();
+}
+
+// ─────────────────────────────────────────────
+// 4. HUMANIZATION PIPELINE
 // ─────────────────────────────────────────────
 
 // AI patterns that detectors look for - organized by language
@@ -435,33 +534,28 @@ const TRANSITION_REPLACEMENTS: Record<string, Record<string, string[]>> = {
   }
 };
 
-// Step 1: Algorithmic pattern removal and variation
 function removeAIPatterns(content: string, language: string): string {
   let result = content;
   const lang = language || 'en';
   const patterns = AI_PATTERNS[lang] || AI_PATTERNS['en'];
   const transitions = TRANSITION_REPLACEMENTS[lang] || TRANSITION_REPLACEMENTS['en'];
 
-  // Replace AI-specific phrases with nothing or lighter alternatives
   for (const pattern of patterns) {
     if (transitions[pattern]) {
-      // Replace with a random natural alternative
       const alternatives = transitions[pattern];
       const replacement = alternatives[Math.floor(Math.random() * alternatives.length)];
       result = result.replace(new RegExp(escapeRegex(pattern), 'g'), replacement);
     }
   }
 
-  // Remove repetitive sentence starters - if 3+ consecutive paragraphs start the same
+  // Remove repetitive sentence starters
   const paragraphs = result.split('\n\n');
   for (let i = 2; i < paragraphs.length; i++) {
     const getFirstWord = (p: string) => p.trim().split(/\s+/)[0]?.toLowerCase();
     if (getFirstWord(paragraphs[i]) === getFirstWord(paragraphs[i - 1]) &&
         getFirstWord(paragraphs[i]) === getFirstWord(paragraphs[i - 2])) {
-      // Vary the third paragraph's opening
       const words = paragraphs[i].trim().split(/\s+/);
       if (words.length > 3) {
-        // Move first 2-3 words to create different structure
         paragraphs[i] = words.slice(2).join(' ') + ' — ' + words.slice(0, 2).join(' ').replace(/,$/,'');
       }
     }
@@ -475,7 +569,6 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Step 2: Vary sentence structure for burstiness
 function addBurstiness(content: string): string {
   const paragraphs = content.split('\n\n');
 
@@ -483,19 +576,16 @@ function addBurstiness(content: string): string {
     const sentences = para.match(/[^.!?]+[.!?]+/g);
     if (!sentences || sentences.length < 3) return para;
 
-    // Randomly combine some short sentences and split some long ones
     const modified = sentences.map((sentence, idx) => {
       const trimmed = sentence.trim();
       const wordCount = trimmed.split(/\s+/).length;
 
-      // If sentence is very long (30+ words), try to add a natural break
       if (wordCount > 30 && idx % 3 === 0) {
         const midPoint = Math.floor(trimmed.length * 0.5);
         const breakPoints = [', ', '; ', ' — ', ' – '];
         for (const bp of breakPoints) {
           const nearMid = trimmed.indexOf(bp, midPoint - 20);
           if (nearMid > 0 && nearMid < midPoint + 20) {
-            // Keep as is - natural break exists
             return trimmed;
           }
         }
@@ -508,7 +598,6 @@ function addBurstiness(content: string): string {
   }).join('\n\n');
 }
 
-// Step 3: Gemini-based paraphrasing for deep humanization
 async function humanizeWithGemini(content: string, language: string): Promise<string> {
   if (!GEMINI_API_KEY) return content;
 
@@ -523,32 +612,30 @@ ABSOLUTE RULES:
 3. Write ONLY in ${langName}
 4. Same approximate word count
 5. Return ONLY the rewritten text, no meta-commentary
+6. Do NOT use any markdown formatting (no **, no #, no ---)
+7. Citation numbers must be attached directly to the preceding word with NO space: word[1] NOT word [1]
 
 HOW REAL HUMANS WRITE (apply ALL of these):
 - Sentence length varies wildly: "This matters." followed by a 35-word sentence with multiple clauses
-- Humans make deliberate word choices, not generic ones. Replace "significant impact" with specifics like "a 23% drop" or "a measurable shift"
+- Humans make deliberate word choices, not generic ones
 - Real academics use first-person sparingly: "We observed", "Our analysis suggests"
-- Include small imperfections that humans have: occasional comma before "and", starting a sentence with "But" or "And", using dashes — like this
+- Include small imperfections: occasional comma before "and", starting a sentence with "But" or "And", using dashes — like this
 - Parenthetical asides appear naturally (often to qualify a claim or add nuance)
 - Hedging is SPECIFIC: not "it is important" but "the data points toward" or "one interpretation is"
 - Real paragraphs are uneven: some are 2 sentences, others are 6-7
-- Avoid formulaic transitions. Instead of "Furthermore," write "There's another dimension to this:" or just connect ideas without a transition word
+- Avoid formulaic transitions
 - Some sentences should be questions: "But does this hold across all contexts?"
-- Use concrete language: numbers, names, dates, specific examples — not abstract generalizations
-- Occasionally reference the limitations of the very sources being cited
+- Use concrete language: numbers, names, dates, specific examples
 - Mix tenses naturally: present for established facts, past for specific studies
-- NEVER use these AI-giveaway phrases: "It is important to note", "plays a crucial role", "In today's rapidly evolving", "delve into", "a myriad of", "holistic approach", "paradigm shift", "it is essential", "landscape of", "comprehensive understanding"
-- Vary paragraph openings: a fact, a question, a contrast, a specific number — never repeat the same pattern`;
+- NEVER use these AI-giveaway phrases: "It is important to note", "plays a crucial role", "In today's rapidly evolving", "delve into", "a myriad of", "holistic approach", "paradigm shift", "it is essential", "landscape of", "comprehensive understanding"`;
 
-  const userPrompt = `Rewrite this academic text. Preserve every [N] citation exactly. Make it sound like a real human professor wrote it — varied rhythm, concrete language, occasional first-person, no AI clichés. Return ONLY the rewritten text:\n\n${content}`;
+  const userPrompt = `Rewrite this academic text. Preserve every [N] citation exactly. Make it sound like a real human professor wrote it. Return ONLY the rewritten text:\n\n${content}`;
 
   try {
-    const result = await callGemini(userPrompt, systemPrompt, false);
-    // Verify citations are preserved
+    const result = await callGeminiWithRetry(systemPrompt, userPrompt, 0.8, 8192);
     const originalCitations = content.match(/\[\d+\]/g) || [];
     const resultCitations = result.match(/\[\d+\]/g) || [];
 
-    // If citations were lost, return original
     if (originalCitations.length > 0 && resultCitations.length < originalCitations.length * 0.7) {
       console.log('Humanization lost too many citations, using original');
       return content;
@@ -557,23 +644,19 @@ HOW REAL HUMANS WRITE (apply ALL of these):
     return result;
   } catch (error) {
     console.error('Gemini humanization failed:', error);
-    return content; // Fallback to original
+    return content;
   }
 }
 
-// Full humanization pipeline
-async function humanizeContent(content: string, language: string): Promise<string> {
+async function humanizePipeline(content: string, language: string): Promise<string> {
   console.log('Starting humanization pipeline...');
 
-  // Step 1: Algorithmic pattern removal
   let result = removeAIPatterns(content, language);
   console.log('Step 1 done: AI patterns removed');
 
-  // Step 2: Gemini deep paraphrasing
   result = await humanizeWithGemini(result, language);
   console.log('Step 2 done: Gemini paraphrasing');
 
-  // Step 3: Final burstiness pass
   result = addBurstiness(result);
   console.log('Step 3 done: Burstiness added');
 
@@ -581,7 +664,7 @@ async function humanizeContent(content: string, language: string): Promise<strin
 }
 
 // ─────────────────────────────────────────────
-// 4. CITATION MANAGEMENT
+// 5. CITATION MANAGEMENT
 // ─────────────────────────────────────────────
 
 function extractCitationsFromContent(
@@ -589,12 +672,10 @@ function extractCitationsFromContent(
   startNum: number,
   academicSources: CitationRef[]
 ): { content: string; citations: CitationRef[] } {
-  // Split content from citation block
   const citationSplit = rawContent.split('---CITATIONS---');
   let cleanContent = citationSplit[0].trim();
   const citations: CitationRef[] = [];
 
-  // Parse explicit citation block
   if (citationSplit.length > 1) {
     const citationBlock = citationSplit[1];
     const citationLines = citationBlock.split('\n').filter(l => l.trim());
@@ -604,7 +685,6 @@ function extractCitationsFromContent(
       if (match) {
         const num = parseInt(match[1], 10);
         const text = match[2].trim();
-        // Try to match with our academic sources for verification
         const academicMatch = academicSources.find(s =>
           s.text.toLowerCase().includes(text.split('.')[0]?.toLowerCase() || '') ||
           text.toLowerCase().includes(s.text.split('.')[0]?.toLowerCase() || '')
@@ -646,7 +726,6 @@ function extractCitationsFromContent(
   return { content: cleanContent, citations };
 }
 
-// Verify citation-content alignment
 function verifyCitationIntegrity(content: string, citations: CitationRef[]): {
   valid: boolean;
   missingCitations: number[];
@@ -668,7 +747,47 @@ function verifyCitationIntegrity(content: string, citations: CitationRef[]): {
 }
 
 // ─────────────────────────────────────────────
-// 5. MAIN HANDLER
+// 6. SPELLING/ORTHOGRAPHY RULES
+// ─────────────────────────────────────────────
+
+function getSpellingRules(language: string): string {
+  if (language === 'uz') {
+    return `
+UZBEK ORTHOGRAPHY RULES (Mandatory):
+- Use the official Latin script of Uzbek (O'zbek lotin alifbosi)
+- Use o' (o + apostrof) for ў sound, NOT o\` or ó or just o
+- Use g' (g + apostrof) for ғ sound, NOT g\` or ğ
+- Use sh for ш, ch for ч, ng for нг
+- Double vowels are NOT standard Uzbek — do NOT write "aa", "oo" etc.
+- Use -lar/-ler for plurals correctly based on vowel harmony
+- Correct: o'zbek, g'arb, to'g'ri, bo'lim, so'z, ko'p
+- WRONG: o\`zbek, o'zbek, gʻarb, o'zbek
+- Academic terms may remain in their original language if no standard Uzbek equivalent exists
+- Follow the 1995 Uzbek Latin alphabet standard strictly`;
+  }
+
+  if (language === 'ru') {
+    return `
+RUSSIAN ORTHOGRAPHY RULES (Mandatory):
+- Follow modern Russian orthographic norms (Правила русской орфографии и пунктуации)
+- Use ё where required (not replacing with е): учёный, расчёт, etc.
+- Correct punctuation: em-dash (—) with spaces, NOT hyphen (-) for parenthetical
+- Academic abbreviations: и т.д., и т.п., т.е., др.
+- Correct declension of foreign names and terms
+- Proper use of soft/hard signs in academic terminology`;
+  }
+
+  return `
+ENGLISH ORTHOGRAPHY RULES (Mandatory):
+- Follow standard academic English conventions
+- Use consistent spelling throughout (American OR British, not mixed)
+- Correct hyphenation of compound modifiers: well-known, state-of-the-art
+- Academic abbreviations: e.g., i.e., et al., etc.
+- Proper capitalization of proper nouns and acronyms`;
+}
+
+// ─────────────────────────────────────────────
+// 7. MAIN HANDLER
 // ─────────────────────────────────────────────
 
 serve(async (req) => {
@@ -693,21 +812,21 @@ serve(async (req) => {
       humanize
     } = await req.json();
 
-    if (!GROQ_API_KEY) {
-      throw new Error('GROQ_API_KEY is not configured');
+    if (!GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY is not configured');
     }
 
     const { language, domain, academicLevel, citationStyle, styleMode, modelMode, mainIdea, title, sources } = config || {};
 
-    const model = modelMode === 'quality' ? 'llama-3.3-70b-versatile' : 'llama-3.1-8b-instant';
-
     const languageNames: Record<string, string> = { uz: 'Uzbek', en: 'English', ru: 'Russian' };
     const langName = languageNames[language] || 'Uzbek';
+    const spellingRules = getSpellingRules(language);
 
     // ─── TITLES GENERATION ───
     if (type === 'titles') {
       const systemPrompt = `You are an expert academic writer specializing in ${domain} research. You write in ${langName} language.
 Your task is to generate compelling academic article titles.
+${spellingRules}
 IMPORTANT: Respond ONLY with a JSON array of strings, no other text. Example: ["Title 1", "Title 2"]`;
 
       const userPrompt = `Generate 8-12 academic article titles for a ${academicLevel} level paper in ${domain}.
@@ -723,7 +842,7 @@ Requirements:
 
 Respond with ONLY a JSON array of title strings.`;
 
-      const content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.9, 1000);
+      const content = await callGeminiWithRetry(systemPrompt, userPrompt, 0.9, 1000);
 
       let titles: string[];
       try {
@@ -761,24 +880,11 @@ Respond with ONLY a JSON array of title strings.`;
         });
       }
 
-      // Sort and format citations based on citation style
       const sortedCitations = [...citations].sort((a: CitationRef, b: CitationRef) => a.number - b.number);
 
-      // Format based on style
-      let referencesContent: string;
-      if (citationStyle === 'apa') {
-        referencesContent = sortedCitations.map((c: CitationRef) =>
-          `[${c.number}] ${c.text}`
-        ).join('\n\n');
-      } else if (citationStyle === 'mla') {
-        referencesContent = sortedCitations.map((c: CitationRef) =>
-          `[${c.number}] ${c.text}`
-        ).join('\n\n');
-      } else {
-        referencesContent = sortedCitations.map((c: CitationRef) =>
-          `[${c.number}] ${c.text}`
-        ).join('\n\n');
-      }
+      const referencesContent = sortedCitations.map((c: CitationRef) =>
+        `[${c.number}] ${c.text}`
+      ).join('\n\n');
 
       const verifiedCount = citations.filter((c: CitationRef) => c.verified).length;
       const summary = `${citations.length} references compiled (${verifiedCount} verified with DOI)`;
@@ -803,9 +909,20 @@ Respond with ONLY a JSON array of title strings.`;
         ? `\n\nUser-provided priority sources (cite these first):\n${sources.map((s: any, i: number) => `[${startNum + i}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
         : '';
 
-      // Prior section context — uses FULL content excerpts (not just short summaries) to prevent repetition
+      // Prior section context — uses FULL content excerpts to prevent repetition
       const priorContext = priorSummaries?.length
         ? `\n\n=== ALREADY WRITTEN SECTIONS (DO NOT REPEAT ANY OF THIS CONTENT) ===\n${priorSummaries.map((s: any) => `--- ${s.name} ---\n${s.summary}`).join('\n\n')}\n=== END OF PRIOR CONTENT — YOUR SECTION MUST BE ENTIRELY ORIGINAL ===`
+        : '';
+
+      // Build a hash of sentences from prior content for anti-repetition
+      const priorSentences = priorSummaries?.length
+        ? priorSummaries.flatMap((s: any) => {
+            const sentences = (s.summary || '').match(/[^.!?]+[.!?]+/g) || [];
+            return sentences.map((sent: string) => sent.trim().toLowerCase().substring(0, 80));
+          })
+        : [];
+      const priorSentenceWarning = priorSentences.length > 0
+        ? `\n\nDO NOT use ANY of these sentences or close paraphrases — they already exist in other sections:\n${priorSentences.slice(0, 20).map((s: string) => `- "${s}"`).join('\n')}`
         : '';
 
       // Regeneration instructions
@@ -821,7 +938,6 @@ Respond with ONLY a JSON array of title strings.`;
         };
         regenInstructions = `\n\nSPECIAL INSTRUCTION: ${modes[regenMode] || regenMode}`;
       }
-      // User's custom instruction for targeted regeneration (highest priority)
       if (userInstruction) {
         regenInstructions += `\n\nUSER REQUESTED CHANGES (apply these precisely): ${userInstruction}`;
       }
@@ -834,9 +950,12 @@ Respond with ONLY a JSON array of title strings.`;
       if (isAbstract) {
         let systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
 Write in ${langName} using ${styleMode} style.
+${spellingRules}
 
-ABSTRACT RULES:
+ABSOLUTE FORMAT RULES:
 - Write ONLY in ${langName}
+- Do NOT use any markdown formatting. No **, no #, no ---, no bullet points.
+- Output ONLY plain text paragraphs.
 - This is an ABSTRACT for the article titled: "${title}"
 - Approximately ${Math.min(wordTarget, 300)} words (abstracts are concise)
 - NO citations [1], [2] or references — abstracts NEVER contain references
@@ -853,16 +972,18 @@ ABSTRACT RULES:
         const userPrompt = `Write an abstract for: "${title}"
 Domain: ${domain}, Level: ${academicLevel}
 Target: ${Math.min(wordTarget, 300)} words
-IMPORTANT: Do NOT include any citations [1], [2] or references. This is an abstract.${priorContext}${regenInstructions}`;
+IMPORTANT: Do NOT include any citations [1], [2] or references. This is an abstract. No markdown formatting.${priorContext}${regenInstructions}`;
 
-        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.7, 2000);
+        let content = await callGeminiWithRetry(systemPrompt, userPrompt, 0.7, 2000);
 
         // Strip any citations that leaked through
         content = content.replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+        content = cleanGeneratedContent(content);
 
         if (humanize) {
-          content = await humanizeContent(content, language);
+          content = await humanizePipeline(content, language);
           content = content.replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+          content = cleanGeneratedContent(content);
         }
 
         const summary = content.substring(0, 200) + '...';
@@ -879,32 +1000,28 @@ IMPORTANT: Do NOT include any citations [1], [2] or references. This is an abstr
 
       if (isKeywords) {
         const systemPrompt = `Output ONLY a single line of academic keywords separated by semicolons. Example: "artificial intelligence; machine learning; neural networks; deep learning; computer vision"
-RULES: 5-8 keywords, each 1-3 words, language: ${langName}, domain: ${domain}. NO explanations, NO descriptions, NO sentences, NO bullets, NO numbering. ONLY the keywords line.`;
+RULES: 5-8 keywords, each 1-3 words, language: ${langName}, domain: ${domain}. NO explanations, NO descriptions, NO sentences, NO bullets, NO numbering. ONLY the keywords line.
+${spellingRules}`;
 
         const userPrompt = `Keywords for: "${title}". Output format: keyword1; keyword2; keyword3; keyword4; keyword5`;
 
-        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.3, 200);
+        let content = await callGeminiWithRetry(systemPrompt, userPrompt, 0.3, 200);
 
-        // BULLETPROOF post-processing — force exact format no matter what AI returns
+        // BULLETPROOF post-processing — force exact format
         content = content.replace(/\[\d+\]/g, '');
         content = content.replace(/\*\*/g, '');
         content = content.replace(/["""'']/g, '');
-        // Remove any "Keywords:" prefix in any language
         content = content.replace(/^(keywords?|kalit\s*so['']?zlar|ключевые\s*слова)\s*:?\s*/im, '');
-        // Remove numbering, bullets, dashes
         content = content.replace(/^\s*[-*•►▸]\s*/gm, '');
         content = content.replace(/^\s*\d+[\.\)]\s*/gm, '');
 
-        // Split by any delimiter (newlines, semicolons, commas, pipes)
         let keywords = content
           .split(/[;\n|]/)
           .map(k => k.trim())
           .filter(k => k.length > 0 && k.length < 60);
 
-        // If any "keyword" is actually a sentence (>5 words), skip it
         keywords = keywords.filter(k => k.split(/\s+/).length <= 5);
 
-        // Remove duplicates (case-insensitive)
         const seen = new Set<string>();
         keywords = keywords.filter(k => {
           const lower = k.toLowerCase();
@@ -913,7 +1030,6 @@ RULES: 5-8 keywords, each 1-3 words, language: ${langName}, domain: ${domain}. N
           return true;
         });
 
-        // Take 5-8, rejoin with semicolons
         keywords = keywords.slice(0, 8);
         content = keywords.length >= 3
           ? keywords.join('; ')
@@ -928,13 +1044,17 @@ RULES: 5-8 keywords, each 1-3 words, language: ${langName}, domain: ${domain}. N
       if (isConclusion) {
         let systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
 Write in ${langName} using ${citationStyle} style. Style: ${styleMode}.
+${spellingRules}
 
 CONCLUSION RULES:
 - Write ONLY in ${langName}
+- Do NOT use any markdown formatting. No **, no #, no ---, no bullet points.
+- Output ONLY plain text paragraphs.
 - RELEVANT to "${sectionName}" and title "${title}"
 - NO citations [1], [2] in conclusion
 - Approximately ${wordTarget} words
-- Summarize findings and provide final thoughts`;
+- Summarize findings and provide final thoughts
+- Citation numbers must NOT appear in the conclusion`;
 
         if (humanize) {
           systemPrompt += `\n\nWRITING STYLE (critical):
@@ -950,12 +1070,15 @@ CONCLUSION RULES:
 Domain: ${domain}, Level: ${academicLevel}
 Target: ${wordTarget} words${priorContext}${regenInstructions}
 
-NO CITATIONS. Summarize findings and provide recommendations.`;
+NO CITATIONS. Summarize findings and provide recommendations. No markdown.`;
 
-        let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.7, 4000);
+        let content = await callGeminiWithRetry(systemPrompt, userPrompt, 0.7, 4000);
+
+        content = cleanGeneratedContent(content);
 
         if (humanize) {
-          content = await humanizeContent(content, language);
+          content = await humanizePipeline(content, language);
+          content = cleanGeneratedContent(content);
         }
 
         const summary = content.substring(0, 200) + '...';
@@ -989,26 +1112,31 @@ NO CITATIONS. Summarize findings and provide recommendations.`;
         ? 'Cite REAL laws, regulations, court cases with specific article numbers. Also use the academic sources provided.'
         : 'Cite the REAL academic sources provided below. Use their actual authors, titles, and years.';
 
-      // Step 3: Generate content with GROQ using real sources
+      // Step 3: Generate content with GEMINI using real sources
       const systemPrompt = `You are an expert academic writer in ${domain} at ${academicLevel} level.
 Write in ${langName} using ${citationStyle} citation format. Writing style: ${styleMode}.
+${spellingRules}
 
 CRITICAL FORMAT RULES:
 - Write ONLY in ${langName}
+- Do NOT use any markdown formatting. No **, no #, no ---, no bullet points, no bold, no italic markers.
+- Output ONLY plain academic text paragraphs.
 - This section is "${sectionName}" for the article: "${title}"
 - Use citations ONLY as numbers [${startNum}], [${startNum + 1}], etc. in the text
+- Citation numbers must be attached directly to the preceding word with NO space: word[1] NOT word [1]
 - DO NOT include full reference text in the main content
 - Approximately ${wordTarget} words
 - ${domainCitations}
 - EVERY citation [N] MUST correspond to a real source from the list provided
 - Use information from the source abstracts to write accurate, factual content
 
-ANTI-REPETITION RULES (critical):
-- Do NOT repeat ideas, sentences, or phrases from prior sections (provided below)
-- Each section must present UNIQUE content and analysis
-- Do NOT restate the article's purpose/goals if already covered in prior sections
-- Avoid using the same opening patterns across sections
-- If prior sections already discussed a concept, reference it briefly ("As discussed earlier...") rather than re-explaining
+ANTI-REPETITION RULES (absolutely critical — violation means failure):
+- You have been given the FULL TEXT of previously written sections below
+- Do NOT repeat ANY sentence, phrase, or idea that already exists in prior sections
+- Do NOT restate the article's purpose/goals if already covered
+- Do NOT paraphrase content from prior sections — write COMPLETELY NEW analysis
+- Each paragraph must contain ideas NOT found in any prior section
+- If prior sections already discussed a concept, skip it or mention "As noted earlier" in one short phrase${priorSentenceWarning}
 
 PARAMETER COMPLIANCE:
 - Academic level "${academicLevel}" means: ${academicLevel === 'bachelor' ? 'clear explanations, foundational concepts, accessible language' : academicLevel === 'master' ? 'deeper analysis, methodological rigor, critical evaluation' : 'original contribution, advanced methodology, novel theoretical frameworks'}
@@ -1037,16 +1165,17 @@ ${userSourcesInfo}${priorContext}${regenInstructions}
 ${sourcesContext}
 
 IMPORTANT:
-1. In the main text, only use [number] citations
+1. In the main text, only use [number] citations — attached to the word with no space
 2. Base your content on the REAL information from the sources above
 3. After "---CITATIONS---", list each citation with full reference details
 4. Every [number] in the text MUST have a corresponding entry in citations
-5. Do NOT repeat content already covered in prior sections — produce only NEW analysis for "${sectionName}"
+5. Do NOT repeat content already covered in prior sections — produce COMPLETELY NEW analysis for "${sectionName}"
 6. Match the academic level (${academicLevel}) in depth and complexity
-7. Write exclusively in ${langName}`;
+7. Write exclusively in ${langName}
+8. NO markdown formatting — plain text only`;
 
-      console.log('Step 2: Generating content with GROQ...');
-      let rawContent = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.7, 4000);
+      console.log('Step 2: Generating content with Gemini...');
+      let rawContent = await callGeminiWithRetry(systemPrompt, userPrompt, 0.7, 8192);
 
       // Step 4: Extract and verify citations
       console.log('Step 3: Extracting citations...');
@@ -1075,10 +1204,15 @@ IMPORTANT:
         console.log(`Citation integrity check: missing=[${integrity.missingCitations}], orphaned=[${integrity.orphanedCitations}]`);
       }
 
-      // Step 5: Humanization (if enabled)
+      // Step 5: Clean content (strip markdown, fix spacing, deduplicate)
+      console.log('Step 4: Cleaning content...');
+      cleanContent = cleanGeneratedContent(cleanContent);
+
+      // Step 6: Humanization (if enabled)
       if (humanize) {
-        console.log('Step 4: Running humanization pipeline...');
-        cleanContent = await humanizeContent(cleanContent, language);
+        console.log('Step 5: Running humanization pipeline...');
+        cleanContent = await humanizePipeline(cleanContent, language);
+        cleanContent = cleanGeneratedContent(cleanContent);
       }
 
       const summary = cleanContent.substring(0, 200) + '...';
