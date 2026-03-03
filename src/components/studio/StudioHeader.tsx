@@ -6,8 +6,10 @@ import {
   Command,
   Clock,
   Wifi,
-  WifiOff
+  WifiOff,
+  Share2
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/store/projectStore";
 
@@ -84,6 +86,23 @@ export const StudioHeader = ({ onCommandPalette }: StudioHeaderProps) => {
           </kbd>
         </Button>
         
+        {/* Share button */}
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="gap-2"
+          onClick={() => {
+            if (currentProject?.id) {
+              const url = `${window.location.origin}/studio?project=${currentProject.id}`;
+              navigator.clipboard.writeText(url);
+              toast.success("Loyiha havolasi nusxalandi!");
+            }
+          }}
+        >
+          <Share2 className="w-4 h-4" />
+          <span className="hidden sm:inline">Ulashish</span>
+        </Button>
+
         {/* Save button */}
         <Button variant="default" size="sm" className="gap-2">
           <Save className="w-4 h-4" />

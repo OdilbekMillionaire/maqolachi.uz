@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { supabase } from '@/integrations/supabase/client';
 
 export type SectionStatus = 'EMPTY' | 'DRAFT' | 'GENERATED' | 'EDITED';
 export type Phase = 'config' | 'skeleton' | 'write';
@@ -70,7 +71,7 @@ interface ProjectState {
   setTitle: (title: string) => void;
   setGeneratedTitles: (titles: string[]) => void;
   setPhase: (phase: Phase) => void;
-  addSection: (section: Omit<Section, 'id'>) => void;
+  addSection: (section: Omit<Section, 'id' | 'order'>) => void;
   updateSection: (id: string, updates: Partial<Section>) => void;
   removeSection: (id: string) => void;
   reorderSections: (sections: Section[]) => void;
@@ -188,6 +189,7 @@ export const useProjectStore = create<ProjectState>()(
         const newSection: Section = {
           ...section,
           id: generateId(),
+          order: currentProject.sections.length,
         };
         set({
           currentProject: {
@@ -303,9 +305,11 @@ export const useProjectStore = create<ProjectState>()(
       
       setGenerationProgress: (value) => set({ generationProgress: value }),
 
-      saveProject: () => {
+      saveProject: async () => {
         const { currentProject, projects } = get();
         if (!currentProject) return;
+
+        // Save to local state
         const existingIndex = projects.findIndex((p) => p.id === currentProject.id);
         if (existingIndex >= 0) {
           const updated = [...projects];
@@ -313,6 +317,51 @@ export const useProjectStore = create<ProjectState>()(
           set({ projects: updated });
         } else {
           set({ projects: [...projects, currentProject] });
+        }
+
+        // Sync to Supabase if user is logged in (optional for now as per user request)
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          
+          // Even if not logged in, we can try to save to the public tables we created
+          // using the project ID as a reference
+          const projectData = {
+            id: currentProject.id,
+            title: currentProject.title,
+            generated_titles: currentProject.generatedTitles,
+            config: currentProject.config,
+            current_phase: currentProject.currentPhase,
+            updated_at: new Date().toISOString(),
+          };
+
+          const { error: projectError } = await supabase
+            .from('projects')
+            .upsert(projectData);
+
+          if (projectError) console.error('Error syncing project to Supabase:', projectError);
+
+          // Sync sections
+          if (currentProject.sections.length > 0) {
+            const sectionsData = currentProject.sections.map(s => ({
+              id: s.id,
+              project_id: currentProject.id,
+              name: s.name,
+              notes: s.notes,
+              content: s.content,
+              status: s.status,
+              summary: s.summary,
+              order: s.order,
+              updated_at: new Date().toISOString(),
+            }));
+
+            const { error: sectionsError } = await supabase
+              .from('sections')
+              .upsert(sectionsData);
+            
+            if (sectionsError) console.error('Error syncing sections to Supabase:', sectionsError);
+          }
+        } catch (err) {
+          console.error('Supabase sync failed:', err);
         }
       },
 

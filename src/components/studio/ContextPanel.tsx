@@ -14,9 +14,12 @@ import {
   Loader2,
   ExternalLink,
   ShieldCheck,
-  Shield
+  Shield,
+  BrainCircuit,
+  Waves
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { useProjectStore, Source } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { cn } from "@/lib/utils";
@@ -39,7 +42,14 @@ interface ResolvedSource {
 
 export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
   const { currentProject, updateConfig, addSource, removeSource } = useProjectStore();
-  const { humanizeContent, setHumanizeContent } = useSettingsStore();
+  const { 
+    humanizeContent, 
+    setHumanizeContent, 
+    perplexityLevel, 
+    setPerplexityLevel, 
+    burstinessLevel, 
+    setBurstinessLevel 
+  } = useSettingsStore();
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [isResolving, setIsResolving] = useState(false);
 
@@ -185,42 +195,84 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
               </div>
             </div>
 
-            {/* Humanization toggle */}
-            <div>
-              <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
-                {t.humanizationLabel}
-              </h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                {t.humanizationDesc}
-              </p>
-              <button
-                onClick={() => setHumanizeContent(!humanizeContent)}
-                className={cn(
-                  "w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all",
-                  humanizeContent
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {humanizeContent
-                      ? (lang === 'uz' ? 'Yoqilgan' : lang === 'ru' ? 'Включено' : 'Enabled')
-                      : (lang === 'uz' ? "O'chirilgan" : lang === 'ru' ? 'Отключено' : 'Disabled')
-                    }
-                  </span>
-                </div>
-                <div className={cn(
-                  "w-10 h-6 rounded-full p-1 transition-colors",
-                  humanizeContent ? "bg-primary" : "bg-muted"
-                )}>
+            {/* Humanization toggle & sliders */}
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">
+                  {t.humanizationLabel}
+                </h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  {t.humanizationDesc}
+                </p>
+                <button
+                  onClick={() => setHumanizeContent(!humanizeContent)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all",
+                    humanizeContent
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="w-4 h-4" />
+                    <span className="text-sm font-medium">
+                      {humanizeContent
+                        ? (lang === 'uz' ? 'Yoqilgan' : lang === 'ru' ? 'Включено' : 'Enabled')
+                        : (lang === 'uz' ? "O'chirilgan" : lang === 'ru' ? 'Отключено' : 'Disabled')
+                      }
+                    </span>
+                  </div>
                   <div className={cn(
-                    "w-4 h-4 rounded-full bg-white transition-transform",
-                    humanizeContent && "translate-x-4"
-                  )} />
-                </div>
-              </button>
+                    "w-10 h-6 rounded-full p-1 transition-colors",
+                    humanizeContent ? "bg-primary" : "bg-muted"
+                  )}>
+                    <div className={cn(
+                      "w-4 h-4 rounded-full bg-white transition-transform",
+                      humanizeContent && "translate-x-4"
+                    )} />
+                  </div>
+                </button>
+              </div>
+
+              {humanizeContent && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="space-y-4 pt-2"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <BrainCircuit className="w-3 h-3" />
+                        <span>{lang === 'uz' ? 'Perpleksiya' : lang === 'ru' ? 'Перплексия' : 'Perplexity'}</span>
+                      </div>
+                      <span className="text-xs font-mono text-primary">{perplexityLevel}%</span>
+                    </div>
+                    <Slider 
+                      value={[perplexityLevel]} 
+                      onValueChange={(val) => setPerplexityLevel(val[0])} 
+                      max={100} 
+                      step={1} 
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Waves className="w-3 h-3" />
+                        <span>{lang === 'uz' ? 'Burstiness' : lang === 'ru' ? 'Разнообразие' : 'Burstiness'}</span>
+                      </div>
+                      <span className="text-xs font-mono text-primary">{burstinessLevel}%</span>
+                    </div>
+                    <Slider 
+                      value={[burstinessLevel]} 
+                      onValueChange={(val) => setBurstinessLevel(val[0])} 
+                      max={100} 
+                      step={1} 
+                    />
+                  </div>
+                </motion.div>
+              )}
             </div>
 
             {/* Model mode toggle */}

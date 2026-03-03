@@ -56,7 +56,7 @@ export const WritePhase = () => {
     addCitations,
     getNextCitationNumber
   } = useProjectStore();
-  const { humanizeContent } = useSettingsStore();
+  const { humanizeContent, perplexityLevel, burstinessLevel } = useSettingsStore();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -112,7 +112,11 @@ export const WritePhase = () => {
         isConclusion,
         isReferences,
         storedCitations: storedCitations,
-        humanize: humanizeContent
+        humanize: humanizeContent,
+        humanizeSettings: {
+          perplexity: perplexityLevel,
+          burstiness: burstinessLevel
+        }
       };
 
       const { data, error } = await supabase.functions.invoke('generate-content', {
@@ -263,6 +267,30 @@ export const WritePhase = () => {
   const totalWords = countWords(sections);
   const verifiedCitations = storedCitations.filter((c: any) => c.verified).length;
 
+  // Simple heuristic for "Human Score"
+  const calculateHumanScore = (text: string) => {
+    if (!text || text.length < 100) return 0;
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+    if (sentences.length < 3) return 50;
+    
+    const lengths = sentences.map(s => s.trim().split(/\s+/).length);
+    const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    const variance = lengths.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / lengths.length;
+    
+    // Higher variance in sentence length usually means more human-like
+    // Also check for common AI transition words
+    const aiWords = ['furthermore', 'moreover', 'in addition', 'consequently', 'it is important to note'];
+    const aiWordCount = aiWords.reduce((count, word) => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      return count + (text.match(regex)?.length || 0);
+    }, 0);
+    
+    let score = 50 + (Math.sqrt(variance) * 5);
+    score -= (aiWordCount * 2);
+    
+    return Math.min(Math.max(Math.round(score), 30), 99);
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       <motion.div
@@ -285,7 +313,26 @@ export const WritePhase = () => {
                 {title}
               </h2>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-4 flex-shrink-0">
+              {completedSections > 0 && (
+                <div className="hidden md:flex flex-col items-end">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Human Score</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 h-1.5 bg-secondary rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-primary transition-all duration-1000" 
+                        style={{ width: `${calculateHumanScore(sections.map(s => s.content).join(' '))}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-mono font-bold text-primary">
+                      {calculateHumanScore(sections.map(s => s.content).join(' '))}%
+                    </span>
+                  </div>
+                </div>
+              )}
               <Button
                 variant="outline"
                 size="sm"

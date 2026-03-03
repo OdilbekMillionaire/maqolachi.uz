@@ -159,48 +159,56 @@ async function getAcademicSources(
   domain: string,
   sectionName: string
 ): Promise<{ sources: AcademicSource[]; context: string; citations: CitationRef[] }> {
-  const searchQuery = `${query} ${sectionName}`;
+  // Create multiple search queries for better coverage
+  const queries = [
+    `${query} ${sectionName}`,
+    `${query} research paper`,
+    `${sectionName} in ${domain}`
+  ];
 
-  // Run Semantic Scholar and CrossRef in parallel
-  const [semanticResults, crossrefResults] = await Promise.all([
-    searchSemanticScholar(searchQuery, domain, 10),
-    searchCrossRef(`${searchQuery} ${domain}`, 8),
+  // Run searches in parallel for all queries
+  const searchPromises = queries.flatMap(q => [
+    searchSemanticScholar(q, domain, 8),
+    searchCrossRef(q, 8)
   ]);
 
-  console.log(`Semantic Scholar: ${semanticResults.length}, CrossRef: ${crossrefResults.length}`);
+  const results = await Promise.all(searchPromises);
+  const flatResults = results.flat();
+
+  console.log(`Total raw sources found: ${flatResults.length}`);
 
   // Merge and deduplicate by title similarity
   const allSources: AcademicSource[] = [];
   const seenTitles = new Set<string>();
 
   const addIfNew = (source: AcademicSource) => {
-    const normalizedTitle = source.title.toLowerCase().trim();
-    if (!seenTitles.has(normalizedTitle) && source.title.length > 10) {
+    const normalizedTitle = source.title.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+    if (!seenTitles.has(normalizedTitle) && source.title.length > 15) {
       seenTitles.add(normalizedTitle);
       allSources.push(source);
     }
   };
 
-  // Prefer Semantic Scholar (better academic coverage), then CrossRef (has DOIs)
-  semanticResults.forEach(addIfNew);
-  crossrefResults.forEach(addIfNew);
+  flatResults.forEach(addIfNew);
 
-  // If not enough academic sources, fall back to SerpAPI
-  if (allSources.length < 5) {
-    const serpResults = await searchWithSerpAPI(query, domain);
-    serpResults.forEach(addIfNew);
-    console.log(`Added ${serpResults.length} SerpAPI results as fallback`);
+  // If not enough academic sources, fall back to SerpAPI with more specific queries
+  if (allSources.length < 8) {
+    const serpResults = await Promise.all(queries.map(q => searchWithSerpAPI(q, domain)));
+    serpResults.flat().forEach(addIfNew);
+    console.log(`Added SerpAPI results as fallback. Total now: ${allSources.length}`);
   }
 
   // Sort by citation count (most cited first) then by year (newest first)
   allSources.sort((a, b) => {
-    const citeDiff = (b.citationCount || 0) - (a.citationCount || 0);
+    const citeDiff = (Number(b.citationCount) || 0) - (Number(a.citationCount) || 0);
     if (citeDiff !== 0) return citeDiff;
-    return Number(b.year || 0) - Number(a.year || 0);
+    const yearA = parseInt(String(a.year).match(/\d{4}/)?.[0] || '0');
+    const yearB = parseInt(String(b.year).match(/\d{4}/)?.[0] || '0');
+    return yearB - yearA;
   });
 
-  // Take top 12 sources
-  const topSources = allSources.slice(0, 12);
+  // Take top 15 sources for better variety
+  const topSources = allSources.slice(0, 15);
 
   // Build context string for LLM
   const context = topSources.map((s, i) => {
@@ -459,28 +467,39 @@ function addBurstiness(content: string): string {
 
   return paragraphs.map(para => {
     const sentences = para.match(/[^.!?]+[.!?]+/g);
-    if (!sentences || sentences.length < 3) return para;
+    if (!sentences || sentences.length < 2) return para;
 
-    // Randomly combine some short sentences and split some long ones
-    const modified = sentences.map((sentence, idx) => {
-      const trimmed = sentence.trim();
-      const wordCount = trimmed.split(/\s+/).length;
+    const modified = [];
+    for (let i = 0; i < sentences.length; i++) {
+      let current = sentences[i].trim();
+      const wordCount = current.split(/\s+/).length;
 
-      // If sentence is very long (30+ words), try to add a natural break
-      if (wordCount > 30 && idx % 3 === 0) {
-        const midPoint = Math.floor(trimmed.length * 0.5);
-        const breakPoints = [', ', '; ', ' — ', ' – '];
-        for (const bp of breakPoints) {
-          const nearMid = trimmed.indexOf(bp, midPoint - 20);
-          if (nearMid > 0 && nearMid < midPoint + 20) {
-            // Keep as is - natural break exists
-            return trimmed;
-          }
+      // Randomly decide to split a long sentence
+      if (wordCount > 25 && Math.random() > 0.7) {
+        const parts = current.split(/, |; | — /);
+        if (parts.length > 1) {
+          const splitIdx = Math.floor(parts.length / 2);
+          const firstPart = parts.slice(0, splitIdx).join(', ') + '.';
+          const secondPart = parts.slice(splitIdx).join(', ');
+          modified.push(firstPart, secondPart.charAt(0).toUpperCase() + secondPart.slice(1));
+          continue;
         }
       }
 
-      return trimmed;
-    });
+      // Randomly decide to combine two short sentences
+      if (i < sentences.length - 1 && wordCount < 10) {
+        const next = sentences[i+1].trim();
+        const nextWordCount = next.split(/\s+/).length;
+        if (nextWordCount < 10 && Math.random() > 0.6) {
+          const combined = current.replace(/[.!?]$/, '') + ', and ' + next.charAt(0).toLowerCase() + next.slice(1);
+          modified.push(combined);
+          i++; // Skip next
+          continue;
+        }
+      }
+
+      modified.push(current);
+    }
 
     return modified.join(' ');
   }).join('\n\n');
@@ -493,26 +512,22 @@ async function humanizeWithGemini(content: string, language: string): Promise<st
   const langNames: Record<string, string> = { uz: 'Uzbek', en: 'English', ru: 'Russian' };
   const langName = langNames[language] || 'English';
 
-  const systemPrompt = `You are a professional human academic editor. Your ONLY job is to rewrite the given academic text so that it reads as if written by an experienced human researcher, NOT by AI.
+  const systemPrompt = `You are a world-class academic editor and researcher. Your goal is to rewrite the provided text to be indistinguishable from high-quality human writing while maintaining strict academic standards.
 
 CRITICAL RULES:
-1. Keep ALL citations exactly as they are: [1], [2], etc. - do NOT change, remove, or renumber them
-2. Keep the SAME meaning, facts, and academic quality
-3. Write ONLY in ${langName}
-4. Keep the same approximate length
-5. DO NOT add any comments, notes, or meta-text. Return ONLY the rewritten text.
+1. CITATIONS: Keep ALL citations [1], [2], etc., exactly where they are. Do not reorder or remove them.
+2. LANGUAGE: Write ONLY in ${langName}.
+3. MEANING: Preserve all facts, data, and the original academic argument.
+4. FORMAT: Return ONLY the rewritten text. No meta-comments.
 
-HUMANIZATION TECHNIQUES to apply:
-- Vary sentence length dramatically: mix very short sentences (5-8 words) with longer complex ones (25-35 words)
-- Use occasional parenthetical asides (like this one) to add natural voice
-- Start paragraphs differently - never use the same pattern twice in a row
-- Use rhetorical questions sparingly but effectively
-- Replace generic academic filler with specific, concrete language
-- Add hedging where appropriate: "seems to suggest", "might indicate", "arguably"
-- Use active voice predominantly, passive only when the actor is truly unimportant
-- Include natural academic discourse markers: "interestingly", "upon closer examination", "what stands out"
-- Vary paragraph lengths: some short (2-3 sentences), some longer (5-7 sentences)
-- Avoid overusing transition words at the start of sentences`;
+HUMAN-LIKE WRITING TECHNIQUES:
+- PERPLEXITY: Use a diverse vocabulary. Avoid the "average" word choice that AI favors.
+- BURSTINESS: Mix sentence structures. Use a very short sentence to emphasize a point after a long, complex one.
+- VOICE: Write with a "point of view." Instead of "It is observed that," use "What becomes clear upon analysis is..."
+- HEDGING & NUANCE: Use phrases like "this suggests a possibility that," "one might argue," or "while not definitive, the data points towards."
+- CONNECTIVES: Avoid starting every sentence with "Furthermore," "Moreover," or "In addition." Use internal transitions or start with the subject.
+- RHYTHM: Read the text "mentally" to ensure it has a natural flow and cadence.
+- SPECIFICITY: Replace vague terms with concrete ones. Instead of "various factors," use "specific socio-economic variables."`;
 
   const userPrompt = `Rewrite this academic text to sound naturally human while preserving all citations and meaning:\n\n${content}`;
 
@@ -535,9 +550,35 @@ HUMANIZATION TECHNIQUES to apply:
   }
 }
 
+async function addPerplexity(content: string, language: string): Promise<string> {
+  const langNames: Record<string, string> = { uz: 'Uzbek', en: 'English', ru: 'Russian' };
+  const langName = langNames[language] || 'English';
+  
+  const systemPrompt = `You are a linguistic expert. Your task is to introduce subtle, human-like linguistic variations into the text to increase its perplexity and burstiness.
+  
+  RULES:
+  1. Keep ALL citations [1], [2], etc.
+  2. Do NOT change the meaning.
+  3. Introduce natural synonyms and varied sentence structures.
+  4. Return ONLY the modified text.`;
+  
+  const userPrompt = `Enhance the linguistic variety of this text in ${langName}:\n\n${content}`;
+  
+  try {
+    // Use a fast model for this pass
+    return await callGroqWithRetry(systemPrompt, userPrompt, 'llama-3.1-8b-instant', 0.8, 4000);
+  } catch (error) {
+    console.error('Perplexity pass failed:', error);
+    return content;
+  }
+}
+
 // Full humanization pipeline
-async function humanizeContent(content: string, language: string): Promise<string> {
-  console.log('Starting humanization pipeline...');
+async function humanizeContent(content: string, language: string, settings?: { perplexity: number, burstiness: number }): Promise<string> {
+  console.log('Starting humanization pipeline with settings:', settings);
+
+  const perplexity = settings?.perplexity ?? 50;
+  const burstiness = settings?.burstiness ?? 50;
 
   // Step 1: Algorithmic pattern removal
   let result = removeAIPatterns(content, language);
@@ -547,9 +588,17 @@ async function humanizeContent(content: string, language: string): Promise<strin
   result = await humanizeWithGemini(result, language);
   console.log('Step 2 done: Gemini paraphrasing');
 
-  // Step 3: Final burstiness pass
-  result = addBurstiness(result);
-  console.log('Step 3 done: Burstiness added');
+  // Step 3: Perplexity pass (only if perplexity > 20)
+  if (perplexity > 20) {
+    result = await addPerplexity(result, language);
+    console.log('Step 3 done: Perplexity added');
+  }
+
+  // Step 4: Final burstiness pass (only if burstiness > 20)
+  if (burstiness > 20) {
+    result = addBurstiness(result);
+    console.log('Step 4 done: Burstiness added');
+  }
 
   return result;
 }
@@ -663,7 +712,8 @@ serve(async (req) => {
       isConclusion,
       isReferences,
       storedCitations,
-      humanize
+      humanize,
+      humanizeSettings
     } = await req.json();
 
     if (!GROQ_API_KEY) {
@@ -826,7 +876,7 @@ NO CITATIONS. Summarize findings and provide recommendations.`;
         let content = await callGroqWithRetry(systemPrompt, userPrompt, model, 0.7, 4000);
 
         if (humanize) {
-          content = await humanizeContent(content, language);
+          content = await humanizeContent(content, language, humanizeSettings);
         }
 
         const summary = content.substring(0, 200) + '...';
@@ -934,7 +984,7 @@ IMPORTANT:
       // Step 5: Humanization (if enabled)
       if (humanize) {
         console.log('Step 4: Running humanization pipeline...');
-        cleanContent = await humanizeContent(cleanContent, language);
+        cleanContent = await humanizeContent(cleanContent, language, humanizeSettings);
       }
 
       const summary = cleanContent.substring(0, 200) + '...';
