@@ -12,7 +12,8 @@ import {
   Check,
   Edit3,
   Wand2,
-  CreditCard
+  CreditCard,
+  Hash
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useProjectStore, Language, Domain, AcademicLevel, CitationStyle, StyleMode } from "@/store/projectStore";
@@ -131,6 +132,7 @@ export const ConfigPhase = () => {
       styleMode: config?.styleMode || 'formal',
       citationStyle: config?.citationStyle || 'apa',
       sectionCount: currentProject?.sections?.length || 7,
+      wordsPerSection: config?.wordsPerSection || 400,
     };
     const breakdown = calculatePrice(factors);
     setRequiredAmount(breakdown.total);
@@ -292,6 +294,53 @@ export const ConfigPhase = () => {
             </div>
           </div>
           
+          {/* Words per section slider */}
+          <div className="glass-panel p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Hash className="w-5 h-5 text-primary" />
+              <h2 className="font-semibold">
+                {lang === 'uz' ? "Bo'lim hajmi (so'z soni)" : lang === 'ru' ? 'Объём раздела (слов)' : 'Section length (words)'}
+              </h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              {lang === 'uz'
+                ? "Har bir bo'lim uchun o'rtacha so'z sonini tanlang. Bu maqolaning umumiy hajmiga ta'sir qiladi."
+                : lang === 'ru'
+                ? 'Выберите среднее количество слов для каждого раздела. Это влияет на общий объём статьи.'
+                : 'Choose average word count per section. This affects the overall article length.'}
+            </p>
+
+            <div className="space-y-4">
+              <input
+                type="range"
+                min={200}
+                max={600}
+                step={50}
+                value={config?.wordsPerSection || 400}
+                onChange={(e) => updateConfig({ wordsPerSection: parseInt(e.target.value) })}
+                className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+              />
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">200</span>
+                <span className="text-lg font-bold text-primary">
+                  {config?.wordsPerSection || 400} {lang === 'uz' ? "so'z" : lang === 'ru' ? 'слов' : 'words'}
+                </span>
+                <span className="text-muted-foreground">600</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{lang === 'uz' ? "Qisqa" : lang === 'ru' ? 'Коротко' : 'Short'}</span>
+                <span className="text-foreground font-medium">
+                  {lang === 'uz'
+                    ? `~${(config?.wordsPerSection || 400) * (currentProject?.sections?.length || 7)} so'z jami`
+                    : lang === 'ru'
+                    ? `~${(config?.wordsPerSection || 400) * (currentProject?.sections?.length || 7)} слов всего`
+                    : `~${(config?.wordsPerSection || 400) * (currentProject?.sections?.length || 7)} words total`}
+                </span>
+                <span>{lang === 'uz' ? "Batafsil" : lang === 'ru' ? 'Подробно' : 'Detailed'}</span>
+              </div>
+            </div>
+          </div>
+
           {/* Humanization toggle */}
           <div className="glass-panel p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -499,6 +548,12 @@ export const ConfigPhase = () => {
                 <div className="flex justify-between text-muted-foreground">
                   <span>{lang === 'uz' ? "Qo'shimcha bo'limlar" : lang === 'ru' ? 'Доп. разделы' : 'Extra sections'}</span>
                   <span>+{formatPrice(priceBreakdown.sectionsAddon)}</span>
+                </div>
+              )}
+              {priceBreakdown.wordCountAddon > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>{lang === 'uz' ? "Bo'lim hajmi" : lang === 'ru' ? 'Объём раздела' : 'Section length'}</span>
+                  <span>+{formatPrice(priceBreakdown.wordCountAddon)}</span>
                 </div>
               )}
               <div className="border-t border-border pt-3 mt-3 flex justify-between items-center">

@@ -59,6 +59,9 @@ function clientCleanContent(content: string): string {
   // Remove markdown links but keep text
   result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 
+  // Normalize Uzbek apostrophes: ensure o' and g' use standard apostrophe
+  result = result.replace(/([oOgG])[ʻ`''ʼ′]/g, "$1'");
+
   // Deduplicate paragraphs
   const paragraphs = result.split('\n\n');
   const seen = new Set<string>();
@@ -67,7 +70,20 @@ function clientCleanContent(content: string): string {
     const trimmed = para.trim();
     if (!trimmed) continue;
     const normalized = trimmed.toLowerCase().replace(/\s+/g, ' ');
+    // Exact duplicate check
     if (seen.has(normalized)) continue;
+    // Near-duplicate: check if >80% word overlap with any existing paragraph
+    let isDup = false;
+    for (const existing of seen) {
+      if (existing.length > 50 && normalized.length > 50) {
+        const wordsA = normalized.split(/\s+/);
+        const wordsB = new Set(existing.split(/\s+/));
+        let shared = 0;
+        for (const w of wordsA) if (wordsB.has(w)) shared++;
+        if (shared / wordsA.length > 0.80) { isDup = true; break; }
+      }
+    }
+    if (isDup) continue;
     seen.add(normalized);
     unique.push(trimmed);
   }
@@ -208,18 +224,18 @@ export const WritePhase = () => {
 
     const sectionIndex = freshSections.findIndex(s => s.id === sectionId);
 
-    // CRITICAL FIX: Pass FULL prior content (not just 200-char summaries) to prevent repetition
+    // CRITICAL: Pass FULL prior content to prevent repetition
+    // Send the ENTIRE content of each prior section so the AI can see exactly what was already written
     const priorSummaries = freshSections
       .slice(0, sectionIndex)
       .filter(s => s.content)
       .map(s => ({
         name: s.name,
-        summary: s.content!.substring(0, 800) // Give AI enough context to avoid repeating
+        summary: s.content! // Send ALL content — truncation happens server-side if needed
       }));
 
-    const totalSections = freshSections.filter(s => !isReferencesSection(s.name)).length;
-    const targetTotalWords = 5000;
-    const targetSectionWords = Math.floor(targetTotalWords / totalSections);
+    // Use the user-configured words per section
+    const targetSectionWords = freshProject?.config?.wordsPerSection || 400;
 
     const startingCitationNumber = useProjectStore.getState().getNextCitationNumber();
     const isConclusion = isConclusionSection(section?.name || '');
@@ -250,18 +266,49 @@ export const WritePhase = () => {
         humanize: humanizeContent
       };
 
-      const { data, error } = await supabase.functions.invoke('generate-content', {
-        body: requestBody
-      });
+      // Auto-retry with exponential backoff on 429 errors
+      let data: any = null;
+      let lastError: any = null;
+      const maxRetries = 4;
 
-      if (error) throw error;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const result = await supabase.functions.invoke('generate-content', {
+          body: requestBody
+        });
+
+        if (result.error) {
+          const is429 = result.error?.context?.status === 429 ||
+            result.error?.status === 429 ||
+            (typeof result.error?.message === 'string' && result.error.message.includes('429'));
+
+          if (is429 && attempt < maxRetries - 1) {
+            const waitTime = Math.pow(2, attempt) * 5000; // 5s, 10s, 20s, 40s
+            console.log(`429 rate limit, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+            setGenerationProgress(
+              lang === 'uz' ? `Kutilmoqda... (${Math.ceil(waitTime / 1000)}s)`
+                : lang === 'ru' ? `Ожидание... (${Math.ceil(waitTime / 1000)}с)`
+                : `Waiting... (${Math.ceil(waitTime / 1000)}s)`
+            );
+            await new Promise(r => setTimeout(r, waitTime));
+            continue;
+          }
+          lastError = result.error;
+          break;
+        }
+
+        data = result.data;
+        break;
+      }
+
+      if (lastError) throw lastError;
 
       setGenerationProgress(t.progressPolishing);
       await new Promise(resolve => setTimeout(resolve, 300));
 
       if (data?.content) {
         // Client-side cleaning: strip markdown, fix citation spacing, deduplicate
-        const cleanedContent = clientCleanContent(data.content);
+        // Skip cleaning for references section (it has its own format)
+        const cleanedContent = isReferences ? data.content : clientCleanContent(data.content);
         updateSection(sectionId, {
           content: cleanedContent,
           status: "GENERATED",
@@ -295,23 +342,7 @@ export const WritePhase = () => {
       }
     } catch (error: any) {
       console.error('Error generating section:', error);
-
-      const status =
-        error?.context?.status ??
-        error?.status ??
-        (typeof error?.message === 'string' && error.message.includes('429') ? 429 : undefined);
-
-      if (status === 429) {
-        toast.error(
-          lang === 'uz'
-            ? "AI vaqtincha cheklov qo'ydi (429). Biroz kutib, qaytadan urinib ko'ring."
-            : lang === 'ru'
-              ? 'Превышен лимит запросов (429). Подождите и попробуйте снова.'
-              : 'Rate limit reached (429). Please wait and try again.'
-        );
-      } else {
-        toast.error(t.generationError);
-      }
+      toast.error(t.generationError);
     } finally {
       setGeneratingSectionId(null);
       setIsGenerating(false);

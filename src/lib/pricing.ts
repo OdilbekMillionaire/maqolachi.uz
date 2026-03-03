@@ -9,6 +9,7 @@ export interface PricingFactors {
   styleMode: string;
   citationStyle: string;
   sectionCount: number;
+  wordsPerSection: number;
 }
 
 export interface PriceBreakdown {
@@ -20,6 +21,7 @@ export interface PriceBreakdown {
   styleAddon: number;
   citationAddon: number;
   sectionsAddon: number;
+  wordCountAddon: number;
   total: number;
 }
 
@@ -56,11 +58,16 @@ export function calculatePrice(factors: PricingFactors): PriceBreakdown {
   const extraSections = Math.max(0, factors.sectionCount - 5);
   const sectionsAddon = extraSections * 3000;
 
-  const total = base + levelAddon + domainAddon + humanizeAddon + qualityAddon + styleAddon + citationAddon + sectionsAddon;
+  // Word count per section (base price assumes 300 words; each +100 words adds cost)
+  const wordsPerSection = factors.wordsPerSection || 400;
+  const extraWords = Math.max(0, wordsPerSection - 300);
+  const wordCountAddon = Math.floor(extraWords / 100) * 5000;
+
+  const total = base + levelAddon + domainAddon + humanizeAddon + qualityAddon + styleAddon + citationAddon + sectionsAddon + wordCountAddon;
 
   return {
     base, levelAddon, domainAddon, humanizeAddon,
-    qualityAddon, styleAddon, citationAddon, sectionsAddon, total,
+    qualityAddon, styleAddon, citationAddon, sectionsAddon, wordCountAddon, total,
   };
 }
 

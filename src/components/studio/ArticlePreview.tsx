@@ -86,30 +86,42 @@ export const ArticlePreview = ({ isOpen, onClose, title, sections, language }: A
               {sections.map((section) => {
                 if (!section.content) return null;
 
+                const isRefsSection = ['reference', 'adabiyot', 'литература', 'manba', 'источник', 'bibliography']
+                  .some(term => section.name.toLowerCase().includes(term));
+
                 return (
                   <div key={section.id} className="mb-8">
-                    <h2 className="text-lg font-bold text-gray-900 font-serif mb-4 mt-8">
+                    <h2 className={`text-lg font-bold text-gray-900 font-serif mb-4 mt-8 ${isRefsSection ? 'text-center' : ''}`}>
                       {section.name}
                     </h2>
                     <div className="text-gray-800 font-serif leading-[1.8] text-justify">
-                      {section.content.split('\n\n').map((paragraph, pIdx) => {
-                        // Render citations as superscript
-                        const parts = paragraph.split(/(\[\d+\])/g);
-                        return (
-                          <p key={pIdx} className="mb-3 indent-8">
-                            {parts.map((part, partIdx) => {
-                              if (/^\[\d+\]$/.test(part)) {
-                                return (
-                                  <sup key={partIdx} className="text-blue-600 text-xs font-sans">
-                                    {part}
-                                  </sup>
-                                );
-                              }
-                              return <span key={partIdx}>{part}</span>;
-                            })}
+                      {isRefsSection ? (
+                        // References: each line is a separate reference, no indent, hanging indent style
+                        section.content.split('\n').filter(l => l.trim()).map((line, lIdx) => (
+                          <p key={lIdx} className="mb-2 pl-8 -indent-8 text-[11pt]">
+                            {line.trim()}
                           </p>
-                        );
-                      })}
+                        ))
+                      ) : (
+                        // Regular content: paragraphs with first-line indent and superscript citations
+                        section.content.split('\n\n').map((paragraph, pIdx) => {
+                          const parts = paragraph.split(/(\[\d+\])/g);
+                          return (
+                            <p key={pIdx} className="mb-3 indent-8">
+                              {parts.map((part, partIdx) => {
+                                if (/^\[\d+\]$/.test(part)) {
+                                  return (
+                                    <sup key={partIdx} className="text-blue-600 text-xs font-sans">
+                                      {part}
+                                    </sup>
+                                  );
+                                }
+                                return <span key={partIdx}>{part}</span>;
+                              })}
+                            </p>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 );

@@ -420,7 +420,7 @@ function computeOverlap(a: string, b: string): number {
 }
 
 // Full content cleaning pipeline — runs after every generation
-function cleanGeneratedContent(content: string): string {
+function cleanGeneratedContent(content: string, language?: string): string {
   let result = content;
 
   // 1. Strip markdown
@@ -441,6 +441,11 @@ function cleanGeneratedContent(content: string): string {
   // 6. Clean up extra whitespace
   result = result.replace(/\n{3,}/g, '\n\n');
   result = result.replace(/[ \t]{2,}/g, ' ');
+
+  // 7. Normalize Uzbek apostrophes
+  if (language === 'uz') {
+    result = normalizeUzbekApostrophes(result);
+  }
 
   return result.trim();
 }
@@ -755,15 +760,15 @@ function getSpellingRules(language: string): string {
     return `
 UZBEK ORTHOGRAPHY RULES (Mandatory):
 - Use the official Latin script of Uzbek (O'zbek lotin alifbosi)
-- Use o' (o + apostrof) for ў sound, NOT o\` or ó or just o
-- Use g' (g + apostrof) for ғ sound, NOT g\` or ğ
+- For o' letter: write as o followed by apostrophe (o'). Examples: o'zbek, bo'lim, so'z, ko'p, to'g'ri
+- For g' letter: write as g followed by apostrophe (g'). Examples: g'arb, g'oya, to'g'ri
 - Use sh for ш, ch for ч, ng for нг
 - Double vowels are NOT standard Uzbek — do NOT write "aa", "oo" etc.
 - Use -lar/-ler for plurals correctly based on vowel harmony
-- Correct: o'zbek, g'arb, to'g'ri, bo'lim, so'z, ko'p
-- WRONG: o\`zbek, o'zbek, gʻarb, o'zbek
+- WRONG forms to NEVER use: o\`, ó, oʻ, gʻ, g\`, ğ
 - Academic terms may remain in their original language if no standard Uzbek equivalent exists
-- Follow the 1995 Uzbek Latin alphabet standard strictly`;
+- Follow the 1995 Uzbek Latin alphabet standard strictly
+- CAPITALIZATION: In Uzbek, section headings and subheadings should only capitalize the first word (and proper nouns). Do NOT use Title Case.`;
   }
 
   if (language === 'ru') {
@@ -787,7 +792,54 @@ ENGLISH ORTHOGRAPHY RULES (Mandatory):
 }
 
 // ─────────────────────────────────────────────
-// 7. MAIN HANDLER
+// 7. UZBEK APOSTROPHE + TITLE CAPITALIZATION
+// ─────────────────────────────────────────────
+
+// Normalize Uzbek apostrophes: ensure o' and g' use consistent apostrophe (')
+function normalizeUzbekApostrophes(text: string): string {
+  let result = text;
+  // Replace various apostrophe characters with standard apostrophe (')
+  // Common wrong variants: ʻ (U+02BB), ` (backtick), ' (U+2018), ' (U+2019), ʼ (U+02BC), ′ (prime)
+  // We want to use standard apostrophe (') for o' and g'
+  result = result.replace(/([oOgG])[ʻ`''ʼ′]/g, "$1'");
+  return result;
+}
+
+// Fix title capitalization for Uzbek/Russian: only first word capitalized (+ proper nouns)
+function fixTitleCapitalization(title: string, language: string): string {
+  if (!title || title.length === 0) return title;
+
+  // Common proper nouns / abbreviations that should stay capitalized
+  const properNouns = new Set([
+    // Uzbek
+    "O'zbekiston", "Toshkent", "Samarqand", "Buxoro", "Farg'ona", "BMT", "AQSH", "YeI",
+    // Russian
+    'Узбекистан', 'Россия', 'Ташкент', 'ООН', 'США', 'ЕС',
+    // International
+    'AI', 'IT', 'GDP', 'IMRAD', 'UNESCO', 'WHO', 'WTO', 'IMF',
+  ]);
+
+  const words = title.split(/\s+/);
+  if (words.length === 0) return title;
+
+  return words.map((word, index) => {
+    // First word: keep its capitalization (capitalize first letter)
+    if (index === 0) {
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }
+
+    // Proper nouns / abbreviations: keep as-is
+    if (properNouns.has(word) || /^[A-Z]{2,}$/.test(word)) {
+      return word;
+    }
+
+    // Everything else: lowercase
+    return word.toLowerCase();
+  }).join(' ');
+}
+
+// ─────────────────────────────────────────────
+// 8. MAIN HANDLER
 // ─────────────────────────────────────────────
 
 serve(async (req) => {
@@ -824,9 +876,15 @@ serve(async (req) => {
 
     // ─── TITLES GENERATION ───
     if (type === 'titles') {
+      const capitalizationRule = language === 'uz'
+        ? `\nUZBEK TITLE CAPITALIZATION: In Uzbek, only the FIRST word of the title starts with a capital letter, all other words are lowercase (except proper nouns). Example: "Huquqiy davlat tushunchasi va uning rivojlanishi" NOT "Huquqiy Davlat Tushunchasi Va Uning Rivojlanishi". This is the standard Uzbek academic convention.`
+        : language === 'ru'
+        ? `\nRUSSIAN TITLE CAPITALIZATION: In Russian, only the FIRST word of the title starts with a capital letter, all other words are lowercase (except proper nouns). Example: "Правовое государство и его развитие" NOT "Правовое Государство И Его Развитие".`
+        : '';
+
       const systemPrompt = `You are an expert academic writer specializing in ${domain} research. You write in ${langName} language.
 Your task is to generate compelling academic article titles.
-${spellingRules}
+${spellingRules}${capitalizationRule}
 IMPORTANT: Respond ONLY with a JSON array of strings, no other text. Example: ["Title 1", "Title 2"]`;
 
       const userPrompt = `Generate 8-12 academic article titles for a ${academicLevel} level paper in ${domain}.
@@ -839,6 +897,7 @@ Requirements:
 - Titles should be appropriate for ${academicLevel} level academic writing
 - Include a mix of descriptive, analytical, and argumentative title styles
 - Make titles specific and engaging
+${language === 'uz' || language === 'ru' ? '- IMPORTANT: Only capitalize the FIRST word of each title (and proper nouns). Do NOT use Title Case.' : ''}
 
 Respond with ONLY a JSON array of title strings.`;
 
@@ -850,6 +909,16 @@ Respond with ONLY a JSON array of title strings.`;
         titles = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
       } catch {
         titles = content.split('\n').filter((line: string) => line.trim()).slice(0, 12);
+      }
+
+      // Post-process titles: fix capitalization for Uzbek/Russian
+      if (language === 'uz' || language === 'ru') {
+        titles = titles.map(t => fixTitleCapitalization(t, language));
+      }
+
+      // Post-process: normalize Uzbek apostrophes
+      if (language === 'uz') {
+        titles = titles.map(t => normalizeUzbekApostrophes(t));
       }
 
       return new Response(JSON.stringify({ titles }), {
@@ -909,20 +978,30 @@ Respond with ONLY a JSON array of title strings.`;
         ? `\n\nUser-provided priority sources (cite these first):\n${sources.map((s: any, i: number) => `[${startNum + i}] ${s.title}: ${s.urlOrDoi}`).join('\n')}`
         : '';
 
-      // Prior section context — uses FULL content excerpts to prevent repetition
+      // Prior section context — uses FULL content to prevent repetition
+      // Cap each section at 2000 chars to stay within token limits, but provide as much as possible
       const priorContext = priorSummaries?.length
-        ? `\n\n=== ALREADY WRITTEN SECTIONS (DO NOT REPEAT ANY OF THIS CONTENT) ===\n${priorSummaries.map((s: any) => `--- ${s.name} ---\n${s.summary}`).join('\n\n')}\n=== END OF PRIOR CONTENT — YOUR SECTION MUST BE ENTIRELY ORIGINAL ===`
+        ? `\n\n=== ALREADY WRITTEN SECTIONS — DO NOT REPEAT ANY CONTENT FROM BELOW ===\n${priorSummaries.map((s: any) => {
+            const content = (s.summary || '').substring(0, 2000);
+            return `──── ${s.name} ────\n${content}`;
+          }).join('\n\n')}\n=== END OF PRIOR CONTENT — EVERYTHING ABOVE IS ALREADY IN THE ARTICLE. WRITE ONLY NEW, ORIGINAL CONTENT ===`
         : '';
 
-      // Build a hash of sentences from prior content for anti-repetition
+      // Extract key sentences from prior content for explicit "do not repeat" list
       const priorSentences = priorSummaries?.length
         ? priorSummaries.flatMap((s: any) => {
             const sentences = (s.summary || '').match(/[^.!?]+[.!?]+/g) || [];
-            return sentences.map((sent: string) => sent.trim().toLowerCase().substring(0, 80));
+            // Take first sentence of each paragraph as the most likely to be repeated
+            const paragraphs = (s.summary || '').split('\n\n');
+            const firstSentences = paragraphs
+              .map((p: string) => (p.match(/[^.!?]+[.!?]+/) || [''])[0].trim())
+              .filter((sent: string) => sent.length > 20);
+            return [...firstSentences, ...sentences.slice(0, 5).map((sent: string) => sent.trim())];
           })
         : [];
-      const priorSentenceWarning = priorSentences.length > 0
-        ? `\n\nDO NOT use ANY of these sentences or close paraphrases — they already exist in other sections:\n${priorSentences.slice(0, 20).map((s: string) => `- "${s}"`).join('\n')}`
+      const uniquePriorSentences = [...new Set(priorSentences.map((s: string) => s.substring(0, 100)))];
+      const priorSentenceWarning = uniquePriorSentences.length > 0
+        ? `\n\nEXPLICIT BLACKLIST — these exact sentences/openings are ALREADY in the article. Using any of them = FAILURE:\n${uniquePriorSentences.slice(0, 30).map((s: string) => `FORBIDDEN: "${s}"`).join('\n')}`
         : '';
 
       // Regeneration instructions
@@ -978,12 +1057,12 @@ IMPORTANT: Do NOT include any citations [1], [2] or references. This is an abstr
 
         // Strip any citations that leaked through
         content = content.replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
-        content = cleanGeneratedContent(content);
+        content = cleanGeneratedContent(content, language);
 
         if (humanize) {
           content = await humanizePipeline(content, language);
           content = content.replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
-          content = cleanGeneratedContent(content);
+          content = cleanGeneratedContent(content, language);
         }
 
         const summary = content.substring(0, 200) + '...';
@@ -1074,11 +1153,11 @@ NO CITATIONS. Summarize findings and provide recommendations. No markdown.`;
 
         let content = await callGeminiWithRetry(systemPrompt, userPrompt, 0.7, 4000);
 
-        content = cleanGeneratedContent(content);
+        content = cleanGeneratedContent(content, language);
 
         if (humanize) {
           content = await humanizePipeline(content, language);
-          content = cleanGeneratedContent(content);
+          content = cleanGeneratedContent(content, language);
         }
 
         const summary = content.substring(0, 200) + '...';
@@ -1212,7 +1291,7 @@ IMPORTANT:
       if (humanize) {
         console.log('Step 5: Running humanization pipeline...');
         cleanContent = await humanizePipeline(cleanContent, language);
-        cleanContent = cleanGeneratedContent(cleanContent);
+        cleanContent = cleanGeneratedContent(cleanContent, language);
       }
 
       const summary = cleanContent.substring(0, 200) + '...';

@@ -209,26 +209,34 @@ export const ContextPanel = ({ isOpen, onClose }: ContextPanelProps) => {
               </div>
 
               {/* Word count progress bar */}
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
-                  <span>{lang === 'uz' ? "So'z soni maqsad" : lang === 'ru' ? "Цель по словам" : "Word target"}</span>
-                  <span className={cn(
-                    "font-medium",
-                    totalWords >= 4000 && totalWords <= 6000 ? "text-emerald-500" : totalWords > 6000 ? "text-amber-500" : "text-muted-foreground"
-                  )}>
-                    {totalWords.toLocaleString()} / 5,000
-                  </span>
-                </div>
-                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      totalWords >= 4000 && totalWords <= 6000 ? "bg-emerald-500" : totalWords > 6000 ? "bg-amber-500" : "bg-primary"
-                    )}
-                    style={{ width: `${Math.min((totalWords / 5000) * 100, 100)}%` }}
-                  />
-                </div>
-              </div>
+              {(() => {
+                const wordsPerSection = config?.wordsPerSection || 400;
+                const targetTotal = wordsPerSection * sections.length;
+                const lowerBound = Math.floor(targetTotal * 0.8);
+                const upperBound = Math.floor(targetTotal * 1.2);
+                return (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                      <span>{lang === 'uz' ? "So'z soni maqsad" : lang === 'ru' ? "Цель по словам" : "Word target"}</span>
+                      <span className={cn(
+                        "font-medium",
+                        totalWords >= lowerBound && totalWords <= upperBound ? "text-emerald-500" : totalWords > upperBound ? "text-amber-500" : "text-muted-foreground"
+                      )}>
+                        {totalWords.toLocaleString()} / {targetTotal.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          totalWords >= lowerBound && totalWords <= upperBound ? "bg-emerald-500" : totalWords > upperBound ? "bg-amber-500" : "bg-primary"
+                        )}
+                        style={{ width: `${Math.min((totalWords / targetTotal) * 100, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Project settings summary */}

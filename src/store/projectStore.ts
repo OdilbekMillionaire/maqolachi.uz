@@ -43,6 +43,7 @@ export interface ProjectConfig {
   mainIdea: string;
   styleMode: StyleMode;
   modelMode: ModelMode;
+  wordsPerSection: number; // 200-600, average words per section
 }
 
 export interface Project {
@@ -96,6 +97,7 @@ const defaultConfig: ProjectConfig = {
   mainIdea: '',
   styleMode: 'formal',
   modelMode: 'fast',
+  wordsPerSection: 400,
 };
 
 export type TemplateId = 'imrad' | 'literature-review' | 'case-study' | 'argumentative' | 'theoretical' | 'custom';
