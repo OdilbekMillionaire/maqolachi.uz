@@ -558,10 +558,10 @@ function removeAIPatterns(content: string, language: string): string {
   for (let i = 2; i < paragraphs.length; i++) {
     const getFirstWord = (p: string) => p.trim().split(/\s+/)[0]?.toLowerCase();
     if (getFirstWord(paragraphs[i]) === getFirstWord(paragraphs[i - 1]) &&
-        getFirstWord(paragraphs[i]) === getFirstWord(paragraphs[i - 2])) {
+      getFirstWord(paragraphs[i]) === getFirstWord(paragraphs[i - 2])) {
       const words = paragraphs[i].trim().split(/\s+/);
       if (words.length > 3) {
-        paragraphs[i] = words.slice(2).join(' ') + ' — ' + words.slice(0, 2).join(' ').replace(/,$/,'');
+        paragraphs[i] = words.slice(2).join(' ') + ' — ' + words.slice(0, 2).join(' ').replace(/,$/, '');
       }
     }
   }
@@ -861,7 +861,10 @@ serve(async (req) => {
       isConclusion,
       isReferences,
       storedCitations,
-      humanize
+      humanize,
+      content: scoreContent,
+      query: searchQuery,
+      language: topLevelLang,
     } = await req.json();
 
     if (!GEMINI_API_KEY) {
@@ -874,13 +877,78 @@ serve(async (req) => {
     const langName = languageNames[language] || 'Uzbek';
     const spellingRules = getSpellingRules(language);
 
+    // ─── AI DETECTION SCORE ───
+    if (type === 'score') {
+      const textContent = scoreContent || '';
+      const scoreLang = topLevelLang || language || 'en';
+
+      if (!textContent) {
+        return new Response(JSON.stringify({ score: 0, verdict: 'No content' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const scorePrompt = `You are an AI detection expert. Analyze the following text and estimate the probability (0-100%) that it was written by AI.
+
+CRITERIA TO EVALUATE:
+- Sentence length variation (humans vary more wildly)
+- Use of AI clichés: "It is important to note", "plays a crucial role", "In today's rapidly evolving", "delve into", "holistic approach", "paradigm shift"
+- Transition word repetition: "Moreover", "Furthermore", "Additionally", "Consequently"
+- Burstiness (AI = uniform sentence length, humans = variable)
+- Specificity vs vagueness
+- Formulaic paragraph structure
+- Natural hedging vs AI hedging
+
+TEXT TO ANALYZE (in ${scoreLang === 'uz' ? 'Uzbek' : scoreLang === 'ru' ? 'Russian' : 'English'}):
+${textContent.substring(0, 1500)}
+
+Respond with ONLY valid JSON like: {"score": 23, "verdict": "Likely human", "flags": ["slightly uniform sentence length"]}
+Score meaning: 0-24 = Very human, 25-49 = Mostly human, 50-74 = Suspicious, 75-100 = Very likely AI`;
+
+      try {
+        const result = await callGeminiWithRetry('You are an AI detection analyzer.', scorePrompt, 0.1, 512);
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return new Response(JSON.stringify({
+            score: Math.max(0, Math.min(100, parsed.score || 50)),
+            verdict: parsed.verdict || 'Unknown',
+            flags: parsed.flags || [],
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      } catch (e) {
+        console.error('Score error:', e);
+      }
+
+      return new Response(JSON.stringify({ score: 50, verdict: 'Could not analyze' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ─── ACADEMIC SEARCH ───
+    if (type === 'search') {
+      const q = searchQuery || '';
+      const searchDomain = domain || 'other';
+      if (!q) {
+        return new Response(JSON.stringify({ sources: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const { sources: foundSources } = await getAcademicSources(q, searchDomain, q);
+      return new Response(JSON.stringify({ sources: foundSources }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // ─── TITLES GENERATION ───
     if (type === 'titles') {
       const capitalizationRule = language === 'uz'
         ? `\nUZBEK TITLE CAPITALIZATION: In Uzbek, only the FIRST word of the title starts with a capital letter, all other words are lowercase (except proper nouns). Example: "Huquqiy davlat tushunchasi va uning rivojlanishi" NOT "Huquqiy Davlat Tushunchasi Va Uning Rivojlanishi". This is the standard Uzbek academic convention.`
         : language === 'ru'
-        ? `\nRUSSIAN TITLE CAPITALIZATION: In Russian, only the FIRST word of the title starts with a capital letter, all other words are lowercase (except proper nouns). Example: "Правовое государство и его развитие" NOT "Правовое Государство И Его Развитие".`
-        : '';
+          ? `\nRUSSIAN TITLE CAPITALIZATION: In Russian, only the FIRST word of the title starts with a capital letter, all other words are lowercase (except proper nouns). Example: "Правовое государство и его развитие" NOT "Правовое Государство И Его Развитие".`
+          : '';
 
       const systemPrompt = `You are an expert academic writer specializing in ${domain} research. You write in ${langName} language.
 Your task is to generate compelling academic article titles.
@@ -936,8 +1004,8 @@ Respond with ONLY a JSON array of title strings.`;
         const noRefsMessage = language === 'uz'
           ? "Hozircha manbalar mavjud emas. Avval boshqa bo'limlarni yarating."
           : language === 'ru'
-          ? 'Источники пока отсутствуют. Сначала сгенерируйте другие разделы.'
-          : 'No references available yet. Generate other sections first.';
+            ? 'Источники пока отсутствуют. Сначала сгенерируйте другие разделы.'
+            : 'No references available yet. Generate other sections first.';
 
         return new Response(JSON.stringify({
           content: noRefsMessage,
@@ -982,22 +1050,22 @@ Respond with ONLY a JSON array of title strings.`;
       // Cap each section at 2000 chars to stay within token limits, but provide as much as possible
       const priorContext = priorSummaries?.length
         ? `\n\n=== ALREADY WRITTEN SECTIONS — DO NOT REPEAT ANY CONTENT FROM BELOW ===\n${priorSummaries.map((s: any) => {
-            const content = (s.summary || '').substring(0, 2000);
-            return `──── ${s.name} ────\n${content}`;
-          }).join('\n\n')}\n=== END OF PRIOR CONTENT — EVERYTHING ABOVE IS ALREADY IN THE ARTICLE. WRITE ONLY NEW, ORIGINAL CONTENT ===`
+          const content = (s.summary || '').substring(0, 2000);
+          return `──── ${s.name} ────\n${content}`;
+        }).join('\n\n')}\n=== END OF PRIOR CONTENT — EVERYTHING ABOVE IS ALREADY IN THE ARTICLE. WRITE ONLY NEW, ORIGINAL CONTENT ===`
         : '';
 
       // Extract key sentences from prior content for explicit "do not repeat" list
       const priorSentences = priorSummaries?.length
         ? priorSummaries.flatMap((s: any) => {
-            const sentences = (s.summary || '').match(/[^.!?]+[.!?]+/g) || [];
-            // Take first sentence of each paragraph as the most likely to be repeated
-            const paragraphs = (s.summary || '').split('\n\n');
-            const firstSentences = paragraphs
-              .map((p: string) => (p.match(/[^.!?]+[.!?]+/) || [''])[0].trim())
-              .filter((sent: string) => sent.length > 20);
-            return [...firstSentences, ...sentences.slice(0, 5).map((sent: string) => sent.trim())];
-          })
+          const sentences = (s.summary || '').match(/[^.!?]+[.!?]+/g) || [];
+          // Take first sentence of each paragraph as the most likely to be repeated
+          const paragraphs = (s.summary || '').split('\n\n');
+          const firstSentences = paragraphs
+            .map((p: string) => (p.match(/[^.!?]+[.!?]+/) || [''])[0].trim())
+            .filter((sent: string) => sent.length > 20);
+          return [...firstSentences, ...sentences.slice(0, 5).map((sent: string) => sent.trim())];
+        })
         : [];
       const uniquePriorSentences = [...new Set(priorSentences.map((s: string) => s.substring(0, 100)))];
       const priorSentenceWarning = uniquePriorSentences.length > 0

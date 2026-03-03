@@ -223,6 +223,81 @@ export const exportToDoc = async (data: ExportData): Promise<void> => {
   saveAs(blob, `${safeName || 'maqola'}.docx`);
 };
 
+export const exportToPdf = (data: ExportData): void => {
+  const { title, sections, language } = data;
+
+  const refsSection = sections.find(s => isRefsSection(s.name));
+  const contentSections = sections.filter(s => !isRefsSection(s.name) && s.content);
+
+  const langFont = language === 'ru' ? 'Helvetica, Arial, sans-serif' : 'Georgia, "Times New Roman", serif';
+
+  const sectionsHtml = contentSections.map(s => {
+    const cleaned = cleanMarkdown(s.content || '');
+    const paragraphs = cleaned.split('\n\n').filter(p => p.trim());
+    const pHtml = paragraphs.map(p => {
+      // Render citations as superscript
+      const withSup = p.replace(/\[(\d+)\]/g, '<sup>[$1]</sup>');
+      return `<p class="body-text">${withSup}</p>`;
+    }).join('');
+    return `
+      <div class="section">
+        <h2 class="section-title">${cleanMarkdown(s.name).toUpperCase()}</h2>
+        ${pHtml}
+      </div>`;
+  }).join('');
+
+  const refsHtml = refsSection?.content ? `
+    <div class="section refs-section">
+      <h2 class="section-title">${getReferencesTitle(language).toUpperCase()}</h2>
+      ${cleanMarkdown(refsSection.content).split('\n').filter(l => l.trim()).map(l =>
+    `<p class="ref-line">${l.trim()}</p>`
+  ).join('')}
+    </div>` : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="${language}">
+<head>
+<meta charset="UTF-8">
+<title>${title}</title>
+<style>
+  @page { size: A4; margin: 3.2cm 2.5cm 2.5cm 3.2cm; }
+  body { font-family: ${langFont}; font-size: 12pt; line-height: 1.5; color: #000; background: #fff; }
+  .title-page { text-align: center; margin-top: 8cm; margin-bottom: 3cm; }
+  .title-page h1 { font-size: 16pt; font-weight: bold; line-height: 1.4; }
+  .section { margin-top: 1.5cm; page-break-inside: avoid; }
+  .section-title { font-size: 14pt; font-weight: bold; text-align: left; margin-bottom: 0.6cm; letter-spacing: 0.01em; }
+  .body-text { text-align: justify; text-indent: 1.25cm; margin-bottom: 0.4cm; font-size: 12pt; }
+  .refs-section { page-break-before: always; }
+  .ref-line { text-indent: -1.25cm; margin-left: 1.25cm; margin-bottom: 0.3cm; font-size: 11pt; }
+  sup { font-size: 8pt; vertical-align: super; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="title-page"><h1>${cleanMarkdown(title)}</h1></div>
+  ${sectionsHtml}
+  ${refsHtml}
+  <script>window.onload = function() { window.print(); window.onafterprint = function() { window.close(); }; }<\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) {
+    // Fallback: download the HTML file directly
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = title.replace(/[^a-zA-Z0-9\u0400-\u04FF\u0600-\u06FF\s]/g, '').substring(0, 50).trim();
+    a.download = `${safeName || 'maqola'}.html`;
+    a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
+
 export const countWords = (sections: Section[]): number => {
   return sections.reduce((total, section) => {
     if (!section.content) return total;
