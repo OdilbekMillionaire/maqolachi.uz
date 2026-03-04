@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { useState, useRef } from "react";
 import {
   CreditCard, Upload, Loader2, CheckCircle2, XCircle,
-  ShieldCheck, Copy, ArrowRight, AlertCircle
+  ShieldCheck, Copy, ArrowRight, AlertCircle, KeyRound, Mail
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePaymentStore } from "@/store/paymentStore";
@@ -18,11 +18,14 @@ interface PaymentGateProps {
 }
 
 export const PaymentGate = ({ requiredAmount, language, onVerified }: PaymentGateProps) => {
-  const { verificationStatus, setVerificationStatus, setIsPaid, setVerificationMessage, verificationMessage } = usePaymentStore();
+  const { verificationStatus, setVerificationStatus, setIsPaid, setVerificationMessage, verificationMessage, checkVipAccess } = usePaymentStore();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showVipLogin, setShowVipLogin] = useState(false);
+  const [vipEmailInput, setVipEmailInput] = useState('');
+  const [vipError, setVipError] = useState(false);
 
   const lang = language || 'uz';
 
@@ -302,6 +305,75 @@ export const PaymentGate = ({ requiredAmount, language, onVerified }: PaymentGat
               </motion.div>
             )}
           </div>
+        </div>
+
+        {/* VIP Access */}
+        <div className="mt-6 pt-6 border-t border-border">
+          {!showVipLogin ? (
+            <button
+              onClick={() => setShowVipLogin(true)}
+              className="w-full text-center text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1.5"
+            >
+              <KeyRound className="w-3 h-3" />
+              {lang === 'uz' ? "Team hisobi bormi?" : lang === 'ru' ? 'Есть аккаунт команды?' : 'Have a team account?'}
+            </button>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="space-y-3"
+            >
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium text-foreground">
+                  {lang === 'uz' ? "Email kiriting" : lang === 'ru' ? 'Введите email' : 'Enter email'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={vipEmailInput}
+                  onChange={(e) => { setVipEmailInput(e.target.value); setVipError(false); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const ok = checkVipAccess(vipEmailInput);
+                      if (ok) {
+                        toast.success(lang === 'uz' ? "Kirish tasdiqlandi!" : lang === 'ru' ? 'Доступ подтверждён!' : 'Access granted!');
+                        onVerified();
+                      } else {
+                        setVipError(true);
+                      }
+                    }
+                  }}
+                  placeholder="email@example.com"
+                  className={cn(
+                    "flex-1 bg-secondary/30 border rounded-xl px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50",
+                    vipError ? "border-destructive" : "border-border"
+                  )}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const ok = checkVipAccess(vipEmailInput);
+                    if (ok) {
+                      toast.success(lang === 'uz' ? "Kirish tasdiqlandi!" : lang === 'ru' ? 'Доступ подтверждён!' : 'Access granted!');
+                      onVerified();
+                    } else {
+                      setVipError(true);
+                    }
+                  }}
+                  disabled={!vipEmailInput.trim()}
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </div>
+              {vipError && (
+                <p className="text-xs text-destructive">
+                  {lang === 'uz' ? "Bu email topilmadi" : lang === 'ru' ? 'Email не найден' : 'Email not found'}
+                </p>
+              )}
+            </motion.div>
+          )}
         </div>
       </div>
     </motion.div>

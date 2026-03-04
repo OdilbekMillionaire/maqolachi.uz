@@ -18,6 +18,8 @@ import { Link } from "react-router-dom";
 import { useProjectStore, Phase, SectionStatus } from "@/store/projectStore";
 import { cn } from "@/lib/utils";
 import { getTranslation, Language } from "@/lib/translations";
+import { exportToDoc, countWords } from "@/lib/docExport";
+import { toast } from "sonner";
 
 interface StudioSidebarProps {
   isCollapsed: boolean;
@@ -209,15 +211,69 @@ export const StudioSidebar = ({ isCollapsed, onToggle }: StudioSidebarProps) => 
       
       {/* Bottom actions */}
       <div className="mt-auto p-4 border-t border-border space-y-2">
-        <Button variant="ghost" size="sm" className={cn("w-full", isCollapsed && "px-0")}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("w-full", isCollapsed && "px-0")}
+          onClick={async () => {
+            if (!currentProject) return;
+            const hasContent = currentProject.sections.some(s => s.content);
+            if (!hasContent) {
+              toast.info(lang === 'uz' ? "Avval bo'limlarni generatsiya qiling" : lang === 'ru' ? "Сначала сгенерируйте разделы" : "Generate sections first");
+              return;
+            }
+            try {
+              await exportToDoc({
+                title: currentProject.title,
+                sections: currentProject.sections,
+                language: lang,
+                domain: currentProject.config.domain,
+                academicLevel: currentProject.config.academicLevel,
+                citationStyle: currentProject.config.citationStyle
+              });
+              toast.success(lang === 'uz' ? "Maqola yuklab olindi!" : lang === 'ru' ? "Статья скачана!" : "Article downloaded!");
+            } catch {
+              toast.error(lang === 'uz' ? "Eksport xatoligi" : lang === 'ru' ? "Ошибка экспорта" : "Export error");
+            }
+          }}
+        >
           <Download className="w-4 h-4" />
           {!isCollapsed && <span className="ml-2">{t.export}</span>}
         </Button>
-        <Button variant="ghost" size="sm" className={cn("w-full", isCollapsed && "px-0")}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("w-full", isCollapsed && "px-0")}
+          onClick={() => {
+            if (!currentProject) return;
+            const fullText = currentProject.sections
+              .filter(s => s.content)
+              .map(s => `${s.name}\n\n${s.content}`)
+              .join('\n\n---\n\n');
+            const articleText = `${currentProject.title}\n\n${fullText}`;
+            navigator.clipboard.writeText(articleText);
+            toast.success(lang === 'uz' ? "Maqola nusxalandi!" : lang === 'ru' ? "Статья скопирована!" : "Article copied to clipboard!");
+          }}
+        >
           <Share2 className="w-4 h-4" />
           {!isCollapsed && <span className="ml-2">{t.share}</span>}
         </Button>
-        <Button variant="ghost" size="sm" className={cn("w-full", isCollapsed && "px-0")}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("w-full", isCollapsed && "px-0")}
+          onClick={() => {
+            if (!currentProject) return;
+            const wc = countWords(currentProject.sections);
+            const completed = currentProject.sections.filter(s => s.status === 'GENERATED' || s.status === 'EDITED').length;
+            const created = new Date(currentProject.createdAt).toLocaleDateString();
+            const updated = new Date(currentProject.updatedAt).toLocaleDateString();
+            toast.info(
+              `${lang === 'uz' ? "Yaratilgan" : lang === 'ru' ? "Создан" : "Created"}: ${created}\n${lang === 'uz' ? "Yangilangan" : lang === 'ru' ? "Обновлён" : "Updated"}: ${updated}\n${completed}/${currentProject.sections.length} ${lang === 'uz' ? "bo'lim" : lang === 'ru' ? "разделов" : "sections"} | ${wc} ${lang === 'uz' ? "so'z" : lang === 'ru' ? "слов" : "words"}`,
+              { duration: 5000 }
+            );
+          }}
+        >
           <History className="w-4 h-4" />
           {!isCollapsed && <span className="ml-2">{t.history}</span>}
         </Button>

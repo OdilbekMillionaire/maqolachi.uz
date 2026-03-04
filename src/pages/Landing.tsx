@@ -7,7 +7,6 @@ import { ProofResults } from "@/components/landing/ProofResults";
 import { Templates } from "@/components/landing/Templates";
 import { CTA } from "@/components/landing/CTA";
 import { Footer } from "@/components/landing/Footer";
-import { WelcomeOverlay } from "@/components/WelcomeOverlay";
 import { useSettingsStore } from "@/store/settingsStore";
 
 const Landing = () => {
@@ -20,7 +19,6 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <WelcomeOverlay />
       <Navbar />
       <main>
         <Hero />

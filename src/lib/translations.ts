@@ -148,6 +148,11 @@ export const translations = {
     humanizationLabel: "Humanizatsiya",
     humanizationDesc: "AI detektorlari aniqlay olmaydigan matn",
 
+    // Section regeneration with user instruction
+    regenWithChanges: "O'zgarishlar bilan qayta generatsiya",
+    regenInstruction: "Qanday o'zgarishlarni xohlaysiz?",
+    regenInstructionPlaceholder: "Masalan: So'z sonini kamaytiring, ko'proq statistika qo'shing, kirish qismini kuchaytiring...",
+
     // Default sections
     sectionIntro: "Kirish",
     sectionLitReview: "Adabiyotlar sharhi",
@@ -305,6 +310,11 @@ export const translations = {
     humanizationLabel: "Humanization",
     humanizationDesc: "Undetectable by AI detectors",
 
+    // Section regeneration with user instruction
+    regenWithChanges: "Regenerate with changes",
+    regenInstruction: "What changes do you want?",
+    regenInstructionPlaceholder: "E.g.: Shorten this section, add more statistics, strengthen the argument...",
+
     // Default sections
     sectionIntro: "Introduction",
     sectionLitReview: "Literature Review",
@@ -461,6 +471,11 @@ export const translations = {
     // Humanization
     humanizationLabel: "Гуманизация",
     humanizationDesc: "Не обнаруживается детекторами ИИ",
+
+    // Section regeneration with user instruction
+    regenWithChanges: "Перегенерировать с изменениями",
+    regenInstruction: "Какие изменения вы хотите?",
+    regenInstructionPlaceholder: "Например: Сократите этот раздел, добавьте больше статистики, усильте аргументацию...",
 
     // Default sections
     sectionIntro: "Введение",

@@ -8,6 +8,8 @@ interface SettingsState {
   language: Language;
   theme: Theme;
   hasSeenWelcome: boolean;
+  hasSeenTour: boolean;
+  hasSeenSkeletonTour: boolean;
   humanizeContent: boolean;
   perplexityLevel: number;
   burstinessLevel: number;
@@ -15,6 +17,8 @@ interface SettingsState {
   setLanguage: (lang: Language) => void;
   setTheme: (theme: Theme) => void;
   setHasSeenWelcome: (value: boolean) => void;
+  setHasSeenTour: (value: boolean) => void;
+  setHasSeenSkeletonTour: (value: boolean) => void;
   setHumanizeContent: (value: boolean) => void;
   setPerplexityLevel: (value: number) => void;
   setBurstinessLevel: (value: number) => void;
@@ -27,6 +31,8 @@ export const useSettingsStore = create<SettingsState>()(
       language: 'uz',
       theme: 'dark',
       hasSeenWelcome: false,
+      hasSeenTour: false,
+      hasSeenSkeletonTour: false,
       humanizeContent: false,
       perplexityLevel: 50,
       burstinessLevel: 50,
@@ -34,6 +40,8 @@ export const useSettingsStore = create<SettingsState>()(
       setLanguage: (language) => set({ language }),
       setTheme: (theme) => set({ theme }),
       setHasSeenWelcome: (hasSeenWelcome) => set({ hasSeenWelcome }),
+      setHasSeenTour: (hasSeenTour) => set({ hasSeenTour }),
+      setHasSeenSkeletonTour: (hasSeenSkeletonTour) => set({ hasSeenSkeletonTour }),
       setHumanizeContent: (humanizeContent) => set({ humanizeContent }),
       setPerplexityLevel: (perplexityLevel) => set({ perplexityLevel }),
       setBurstinessLevel: (burstinessLevel) => set({ burstinessLevel }),

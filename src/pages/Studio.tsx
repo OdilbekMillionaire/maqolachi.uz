@@ -17,7 +17,7 @@ import { calculatePrice, formatPrice, type PricingFactors } from "@/lib/pricing"
 
 const Studio = () => {
   const { currentProject, createProject } = useProjectStore();
-  const { isPaid, requiredAmount, setIsPaid } = usePaymentStore();
+  const { isPaid, isVip, requiredAmount, setIsPaid } = usePaymentStore();
   const { theme, humanizeContent } = useSettingsStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -79,8 +79,8 @@ const Studio = () => {
     return calculatePrice(factors).total;
   }, [config, humanizeContent, currentProject?.sections?.length]);
 
-  // Payment gate: show before write phase if not paid
-  const showPaymentGate = currentPhase === "write" && !paymentCompleted;
+  // Payment gate: show before write phase if not paid (VIP users bypass)
+  const showPaymentGate = currentPhase === "write" && !paymentCompleted && !isVip;
 
   const handlePaymentVerified = () => {
     setPaymentCompleted(true);
