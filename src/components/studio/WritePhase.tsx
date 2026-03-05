@@ -773,7 +773,7 @@ export const WritePhase = () => {
                                 className="h-8 text-[10px]"
                                 onClick={() => handleGenerate(section.id, 'simplify')}
                                 disabled={isGenerating}
-                              )
+                              >
                                 {lang === 'uz' ? "Soddalashtirish" : "Simplify"}
                               </Button>
                             </div>
